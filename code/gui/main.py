@@ -21,23 +21,29 @@ APP_TITLE = core.APP_TITLE
 APP_GEOMETRY = '1080x720'
 APP_MIN = (900, 620)
 
-# 配色
-C_BG = '#f4f5f7'
-C_PANEL = '#ffffff'
-C_SIDE = '#2b2f3a'
-C_SIDE_HOVER = '#3a4050'
-C_SIDE_ACTIVE = '#4a90d9'
-C_TEXT = '#22262e'
-C_MUTED = '#7a8290'
-C_OK = '#2e9e5b'
-C_WARN = '#d9822b'
-C_ERR = '#d94b4b'
-C_ACCENT = '#4a90d9'
+# 配色 —— macOS 桌面风格：浅灰窗口底 + 半透明灰侧栏 + 纯白圆角卡片
+C_BG = '#ececee'          # 窗口背景（macOS 窗口灰）
+C_PANEL = '#ffffff'        # 内容卡片白
+C_SIDE = '#e7e7ea'         # 侧栏（毛玻璃灰）
+C_SIDE_HOVER = '#dcdce1'   # 侧栏悬停
+C_SIDE_ACTIVE = '#007aff'  # 侧栏选中（系统蓝）
+C_TEXT = '#1d1d1f'         # 主文本（苹果近黑）
+C_MUTED = '#86868b'        # 次要文本（苹果灰）
+C_OK = '#34c759'           # 系统绿
+C_WARN = '#ff9f0a'         # 系统橙
+C_ERR = '#ff3b30'          # 系统红
+C_ACCENT = '#007aff'       # 系统蓝（强调色）
+# 派生色：强调色的深浅变体，统一 hover / 高亮 / 浅底
+C_ACCENT_DARK = '#0069d9'
+C_ACCENT_LIGHT = '#e5f0ff'
+C_BORDER = '#d8d8dd'       # 分隔线 / 卡片描边
+C_CARD = '#f5f5f7'         # 卡片内的浅灰填充
 
 FONT = ('Microsoft YaHei UI', 10)
 FONT_BOLD = ('Microsoft YaHei UI', 10, 'bold')
-FONT_TITLE = ('Microsoft YaHei UI', 14, 'bold')
-FONT_MONO = ('Consolas', 9)
+FONT_TITLE = ('Microsoft YaHei UI', 15, 'bold')
+FONT_SMALL = ('Microsoft YaHei UI', 9)
+FONT_MONO = ('Microsoft YaHei UI', 9)
 
 # 侧栏模式定义：(key, 标题, 说明)
 MODES = [
@@ -52,6 +58,7 @@ MODES = [
     ('log', '9. 查看运行日志', '本次与历史日志'),
     ('xposed', '10. Xposed 模块管理', '查询 / 禁用 / 启用'),
     ('reboot', '11. 重启控制', '软重启 / 完整重启 / 关机'),
+    ('links', '12. 相关链接', 'GitHub 项目与依赖'),
 ]
 
 
@@ -80,6 +87,13 @@ class App(tk.Tk):
         self._build_style()
         self._build_layout()
         self._pump_queue()
+
+        # 应用窗口图标（打包后为内嵌 ico，源码运行时现场渲染）
+        try:
+            import branding
+            branding.apply_window_icon(self)
+        except Exception:
+            pass
 
         self.logger.write('===== 图形界面启动 =====')
         self.logger.write('工具目录：%s' % core.ROOT_DIR)
@@ -117,13 +131,59 @@ class App(tk.Tk):
         st.configure('Panel.TLabel', background=C_PANEL, foreground=C_TEXT, font=FONT)
         st.configure('Title.TLabel', background=C_PANEL, foreground=C_TEXT, font=FONT_TITLE)
         st.configure('Muted.TLabel', background=C_PANEL, foreground=C_MUTED, font=FONT)
-        st.configure('TButton', font=FONT, padding=(10, 6))
-        st.configure('Accent.TButton', font=FONT_BOLD, padding=(10, 7))
-        st.configure('TCheckbutton', background=C_PANEL, font=FONT)
-        st.configure('TLabelframe', background=C_PANEL, font=FONT_BOLD)
-        st.configure('TLabelframe.Label', background=C_PANEL, foreground=C_TEXT, font=FONT_BOLD)
-        st.configure('Treeview', font=FONT, rowheight=26)
-        st.configure('Treeview.Heading', font=FONT_BOLD)
+
+        # ── 普通按钮：白底细描边、圆润，hover 泛蓝 ──
+        st.configure('TButton', font=FONT, padding=(14, 7), relief='flat',
+                     background='#ffffff', foreground=C_TEXT,
+                     bordercolor=C_BORDER, focuscolor='#ffffff',
+                     lightcolor='#ffffff', darkcolor='#ffffff')
+        st.map('TButton',
+               background=[('disabled', '#f5f5f7'), ('pressed', '#e8e8ed'),
+                           ('active', '#f0f0f5')],
+               foreground=[('disabled', '#b0b0b5')],
+               bordercolor=[('active', C_ACCENT)])
+        # ── 强调按钮：系统蓝底 + 白字 ──
+        st.configure('Accent.TButton', font=FONT_BOLD, padding=(14, 8), relief='flat',
+                     background=C_ACCENT, foreground='#ffffff',
+                     bordercolor=C_ACCENT, focuscolor=C_ACCENT,
+                     lightcolor=C_ACCENT, darkcolor=C_ACCENT)
+        st.map('Accent.TButton',
+               background=[('disabled', '#b3d1ff'), ('pressed', C_ACCENT_DARK),
+                           ('active', C_ACCENT_DARK)],
+               foreground=[('disabled', '#f0f6ff')])
+
+        st.configure('TCheckbutton', background=C_PANEL, font=FONT,
+                     focuscolor=C_PANEL)
+
+        # ── 分组框 ──
+        st.configure('TLabelframe', background=C_PANEL, bordercolor=C_BORDER,
+                     relief='solid', borderwidth=1)
+        st.configure('TLabelframe.Label', background=C_PANEL, foreground=C_TEXT,
+                     font=FONT_BOLD)
+
+        # ── 表格 ──
+        st.configure('Treeview', font=FONT, rowheight=28, relief='flat',
+                     background='#ffffff', fieldbackground='#ffffff',
+                     bordercolor=C_BORDER, borderwidth=0)
+        st.configure('Treeview.Heading', font=FONT_BOLD, relief='flat',
+                     background='#f5f5f7', foreground=C_TEXT, padding=(6, 6))
+        st.map('Treeview.Heading', background=[('active', '#ebebf0')])
+        st.map('Treeview', background=[('selected', C_ACCENT)],
+               foreground=[('selected', '#ffffff')])
+
+        # ── 滚动条：细瘦扁平，去掉 clam 的立体槽 ──
+        for orient in ('Vertical', 'Horizontal'):
+            st.configure('%s.TScrollbar' % orient, background='#c7c7cc',
+                         troughcolor=C_BG, bordercolor=C_BG, arrowcolor='#8e8e93',
+                         relief='flat', borderwidth=0, width=10)
+            st.map('%s.TScrollbar' % orient,
+                   background=[('active', C_ACCENT), ('pressed', C_ACCENT)])
+        st.configure('Log.Vertical.TScrollbar', background='#48484a',
+                     troughcolor='#1c1c1e', bordercolor='#1c1c1e',
+                     arrowcolor='#8e8e93', relief='flat', borderwidth=0, width=10)
+        st.configure('Log.Horizontal.TScrollbar', background='#48484a',
+                     troughcolor='#1c1c1e', bordercolor='#1c1c1e',
+                     arrowcolor='#8e8e93', relief='flat', borderwidth=0)
 
     # -----------------------------------------------------------
     #  整体布局
@@ -133,7 +193,7 @@ class App(tk.Tk):
         self._build_header()
 
         body = tk.Frame(self, bg=C_BG)
-        body.pack(fill='both', expand=True, padx=10, pady=(0, 6))
+        body.pack(fill='both', expand=True)
 
         # 左侧导航
         side = tk.Frame(body, bg=C_SIDE, width=228)
@@ -141,9 +201,13 @@ class App(tk.Tk):
         side.pack_propagate(False)
         self._build_sidebar(side)
 
-        # 右侧内容区
+        # 侧栏与内容区之间的分隔线
+        tk.Frame(body, bg=C_BORDER, width=1).pack(side='left', fill='y')
+
+        # 右侧内容区（与侧栏留出内边距，形成卡片感）
         right = tk.Frame(body, bg=C_BG)
-        right.pack(side='left', fill='both', expand=True, padx=(8, 0))
+        right.pack(side='left', fill='both', expand=True, padx=(12, 12),
+                   pady=(10, 0))
 
         self.content = tk.Frame(right, bg=C_BG)
         self.content.pack(fill='both', expand=True)
@@ -152,66 +216,152 @@ class App(tk.Tk):
         self._build_logpanel(right)
 
     def _build_header(self):
-        head = tk.Frame(self, bg=C_SIDE, height=52)
+        head = tk.Frame(self, bg=C_SIDE, height=56)
         head.pack(fill='x')
         head.pack_propagate(False)
 
-        tk.Label(head, text=APP_TITLE, bg=C_SIDE, fg='#ffffff',
-                 font=('Microsoft YaHei UI', 13, 'bold')).pack(side='left', padx=16)
+        # 左侧标题组：整体垂直居中，避免与标题栏贴太近
+        left = tk.Frame(head, bg=C_SIDE)
+        left.pack(side='left', padx=(18, 0))
+        tk.Label(left, text='RootTool', bg=C_SIDE, fg=C_TEXT,
+                 font=('Microsoft YaHei UI', 15, 'bold')).pack(side='left')
+        tk.Label(left, text=core.APP_NAME + ' ' + core.APP_VERSION,
+                 bg=C_SIDE, fg=C_MUTED,
+                 font=('Microsoft YaHei UI', 9)).pack(side='left', padx=(8, 0),
+                                                       pady=(4, 0))
 
-        # 设备状态指示
-        self.lbl_adb = tk.Label(head, text='● ADB 未连接', bg=C_SIDE, fg='#8b93a3', font=FONT)
-        self.lbl_adb.pack(side='right', padx=(0, 16))
-        self.lbl_fb = tk.Label(head, text='● Fastboot 未连接', bg=C_SIDE, fg='#8b93a3', font=FONT)
-        self.lbl_fb.pack(side='right', padx=(0, 16))
-        self.lbl_admin = tk.Label(
-            head, text='管理员' if core.is_admin() else '普通用户',
-            bg=C_SIDE, fg=C_OK if core.is_admin() else C_WARN, font=FONT)
-        self.lbl_admin.pack(side='right', padx=(0, 16))
+        # 设备状态指示（胶囊样式，浅底细描边）
+        def _pill(text, fg):
+            f = tk.Frame(head, bg='#f2f2f5', highlightbackground=C_BORDER,
+                         highlightthickness=1)
+            f.pack(side='right', padx=(8, 0), pady=(6, 0))
+            l = tk.Label(f, text=text, bg='#f2f2f5', fg=fg,
+                         font=('Microsoft YaHei UI', 9), padx=10, pady=4)
+            l.pack()
+            return l
 
-        tk.Button(head, text='刷新设备', command=self.refresh_devices,
-                  bg='#3a4050', fg='#ffffff', activebackground='#4a5060',
-                  activeforeground='#ffffff', bd=0, font=FONT,
-                  padx=12, pady=4, cursor='hand2').pack(side='right', padx=(0, 10))
+        self.lbl_adb = _pill('● ADB 未连接', C_MUTED)
+        self.lbl_fb = _pill('● Fastboot 未连接', C_MUTED)
+        self.lbl_admin = _pill(
+            '● 管理员' if core.is_admin() else '● 普通用户',
+            C_OK if core.is_admin() else C_WARN)
+
+        btn = tk.Button(head, text='刷新设备', command=self.refresh_devices,
+                        bg=C_ACCENT, fg='#ffffff', activebackground=C_ACCENT_DARK,
+                        activeforeground='#ffffff', bd=0, font=FONT_BOLD,
+                        padx=16, pady=6, cursor='hand2', relief='flat')
+        btn.pack(side='right', padx=(12, 18), pady=(5, 0))
+        btn.bind('<Enter>', lambda e: btn.configure(bg=C_ACCENT_DARK))
+        btn.bind('<Leave>', lambda e: btn.configure(bg=C_ACCENT))
+
+        # 底部分隔线，把顶栏与内容区分开
+        tk.Frame(head, bg=C_BORDER, height=1).place(x=0, rely=1.0,
+                                                    y=-1, relwidth=1)
 
     def _build_sidebar(self, parent):
-        tk.Label(parent, text='功能模式', bg=C_SIDE, fg='#8b93a3',
-                 font=('Microsoft YaHei UI', 9)).pack(anchor='w', padx=16, pady=(14, 6))
+        # 品牌区：与应用图标同源的圆角方块 + 名称
+        brand = tk.Frame(parent, bg=C_SIDE)
+        brand.pack(fill='x', padx=16, pady=(16, 6))
+        logo = tk.Frame(brand, bg=C_ACCENT, width=34, height=34)
+        logo.pack(side='left')
+        logo.pack_propagate(False)
+        tk.Label(logo, text='R', bg=C_ACCENT, fg='#ffffff',
+                 font=('Segoe UI', 16, 'bold')).pack(expand=True)
+        box = tk.Frame(brand, bg=C_SIDE)
+        box.pack(side='left', padx=(10, 0))
+        tk.Label(box, text='临时 Root 工具', bg=C_SIDE, fg=C_TEXT,
+                 font=FONT_BOLD).pack(anchor='w')
+        tk.Label(box, text=core.APP_VERSION + ' · manet', bg=C_SIDE, fg=C_MUTED,
+                 font=('Microsoft YaHei UI', 8)).pack(anchor='w')
+
+        tk.Frame(parent, bg=C_BORDER, height=1).pack(fill='x', padx=0, pady=(6, 0))
+        tk.Label(parent, text='功能模式', bg=C_SIDE, fg=C_MUTED,
+                 font=('Microsoft YaHei UI', 9)).pack(anchor='w', padx=16,
+                                                      pady=(12, 8))
 
         self._nav_buttons = {}
         for key, title, _desc in MODES:
-            btn = tk.Frame(parent, bg=C_SIDE, cursor='hand2')
-            btn.pack(fill='x')
-            lbl = tk.Label(btn, text=title, bg=C_SIDE, fg='#d6dae2',
-                           font=FONT, anchor='w', padx=16, pady=9)
-            lbl.pack(fill='x')
-            lbl.bind('<Button-1>', lambda e, k=key: self.show_mode(k))
-            btn.bind('<Button-1>', lambda e, k=key: self.show_mode(k))
-            lbl.bind('<Enter>', lambda e, w=lbl: self._nav_hover(w, True))
-            lbl.bind('<Leave>', lambda e, w=lbl: self._nav_hover(w, False))
-            self._nav_buttons[key] = lbl
+            row = tk.Frame(parent, bg=C_SIDE, cursor='hand2')
+            row.pack(fill='x', padx=8, pady=1)
 
-        # 退出
-        tk.Frame(parent, bg=C_SIDE, height=1).pack(fill='x', pady=(12, 0))
-        quit_lbl = tk.Label(parent, text='退出', bg=C_SIDE, fg='#d6dae2',
-                            font=FONT, anchor='w', padx=16, pady=9, cursor='hand2')
-        quit_lbl.pack(fill='x')
+            # 左侧选中指示条
+            bar = tk.Frame(row, bg=C_SIDE, width=3)
+            bar.pack(side='left', fill='y')
+
+            # 序号徽章（1~12），独立于标题，便于对齐
+            num, _, rest = title.partition('. ')
+            badge = tk.Label(row, text=num, bg='#dcdce1', fg=C_MUTED,
+                             font=('Microsoft YaHei UI', 8), width=3, pady=2)
+            badge.pack(side='left', padx=(10, 8), pady=7)
+
+            lbl = tk.Label(row, text=rest, bg=C_SIDE, fg=C_TEXT,
+                           font=FONT, anchor='w')
+            lbl.pack(side='left', fill='x', expand=True, pady=7)
+
+            widgets = (row, lbl, bar, badge)
+            for w in widgets:
+                w.bind('<Button-1>', lambda e, k=key: self.show_mode(k))
+            for w in (row, lbl, badge):
+                w.bind('<Enter>', lambda e, r=row, l=lbl, b=badge:
+                       self._nav_hover(r, l, b, True))
+                w.bind('<Leave>', lambda e, r=row, l=lbl, b=badge:
+                       self._nav_hover(r, l, b, False))
+            self._nav_buttons[key] = {'row': row, 'lbl': lbl, 'bar': bar,
+                                      'badge': badge}
+
+        # 底部弹性空白，把「退出」顶到侧栏最下方
+        tk.Frame(parent, bg=C_SIDE).pack(fill='both', expand=True)
+
+        tk.Frame(parent, bg=C_BORDER, height=1).pack(fill='x')
+        quit_row = tk.Frame(parent, bg=C_SIDE, cursor='hand2')
+        quit_row.pack(fill='x')
+        tk.Frame(quit_row, bg=C_SIDE, width=3).pack(side='left', fill='y')
+        quit_lbl = tk.Label(quit_row, text='⏻  退出', bg=C_SIDE, fg=C_TEXT,
+                            font=FONT, anchor='w', padx=13, pady=10)
+        quit_lbl.pack(side='left', fill='x', expand=True)
         quit_lbl.bind('<Button-1>', lambda e: self.on_close())
-        quit_lbl.bind('<Enter>', lambda e: quit_lbl.configure(bg=C_SIDE_HOVER))
-        quit_lbl.bind('<Leave>', lambda e: quit_lbl.configure(bg=C_SIDE))
+        quit_row.bind('<Button-1>', lambda e: self.on_close())
+        quit_lbl.bind('<Enter>', lambda e: (quit_row.configure(bg=C_SIDE_HOVER),
+                                            quit_lbl.configure(bg=C_SIDE_HOVER,
+                                                               fg=C_ERR)))
+        quit_lbl.bind('<Leave>', lambda e: (quit_row.configure(bg=C_SIDE),
+                                            quit_lbl.configure(bg=C_SIDE,
+                                                               fg=C_TEXT)))
 
-    def _nav_hover(self, widget, entering):
-        if widget.cget('bg') == C_SIDE_ACTIVE:
+    def _nav_hover(self, row, lbl, badge, entering):
+        # 选中项由 _highlight_nav 接管，不做 hover 覆盖
+        if row.cget('bg') == C_SIDE_ACTIVE:
             return
-        widget.configure(bg=C_SIDE_HOVER if entering else C_SIDE)
+        color = C_SIDE_HOVER if entering else C_SIDE
+        row.configure(bg=color)
+        lbl.configure(bg=color)
+        badge.configure(bg='#d0d0d6' if entering else '#dcdce1')
+
+    def _highlight_nav(self, key):
+        """高亮当前模式：系统蓝背景 + 白字（macOS 侧栏选中）。"""
+        for k, w in self._nav_buttons.items():
+            active = (k == key)
+            bg = C_SIDE_ACTIVE if active else C_SIDE
+            fg = '#ffffff' if active else C_TEXT
+            w['row'].configure(bg=bg)
+            w['lbl'].configure(bg=bg, fg=fg)
+            w['bar'].configure(bg=bg)
+            w['badge'].configure(
+                bg='#ffffff' if active else '#dcdce1',
+                fg=C_ACCENT if active else C_MUTED)
 
     def _build_logpanel(self, parent):
         wrap = tk.Frame(parent, bg=C_BG)
-        wrap.pack(fill='both', expand=False, pady=(8, 0))
+        wrap.pack(fill='both', expand=False, pady=(0, 0))
+
+        # 与内容区之间的分隔线
+        tk.Frame(wrap, bg=C_BORDER, height=1).pack(fill='x', pady=(6, 8))
 
         bar = tk.Frame(wrap, bg=C_BG)
         bar.pack(fill='x')
-        tk.Label(bar, text='实时日志', bg=C_BG, fg=C_TEXT, font=FONT_BOLD).pack(side='left')
+        tk.Label(bar, text='●', bg=C_BG, fg=C_ACCENT, font=FONT).pack(side='left')
+        tk.Label(bar, text='实时日志', bg=C_BG, fg=C_TEXT,
+                 font=FONT_BOLD).pack(side='left', padx=(4, 0))
         self.lbl_busy = tk.Label(bar, text='', bg=C_BG, fg=C_ACCENT, font=FONT_BOLD)
         self.lbl_busy.pack(side='left', padx=(10, 0))
         self.btn_cancel = ttk.Button(bar, text='取消', command=self.cancel_task)
@@ -219,29 +369,36 @@ class App(tk.Tk):
         self.btn_cancel.state(['disabled'])
         self.lbl_status = tk.Label(bar, text='就绪', bg=C_BG, fg=C_MUTED, font=FONT)
         self.lbl_status.pack(side='left', padx=8)
-        tk.Button(bar, text='清空', command=self.clear_log, bd=0, font=FONT,
+        tk.Button(bar, text='清空日志', command=self.clear_log, bd=0, font=FONT,
                   bg=C_BG, fg=C_ACCENT, activebackground=C_BG,
+                  activeforeground=C_ACCENT_DARK,
                   cursor='hand2').pack(side='right')
         tk.Button(bar, text='打开日志目录', command=self.open_log_dir, bd=0, font=FONT,
                   bg=C_BG, fg=C_ACCENT, activebackground=C_BG,
+                  activeforeground=C_ACCENT_DARK,
                   cursor='hand2').pack(side='right', padx=8)
 
-        box = tk.Frame(wrap, bg='#1e222b', height=176)
+        # 日志区：macOS 终端风深灰底 + 圆角描边
+        box = tk.Frame(wrap, bg='#1c1c1e', height=176,
+                       highlightbackground='#2c2c2e', highlightthickness=1)
         box.pack(fill='both', expand=True)
         box.pack_propagate(False)
-        self.log_text = tk.Text(box, bg='#1e222b', fg='#c9d1d9', insertbackground='#c9d1d9',
-                                font=FONT_MONO, bd=0, wrap='none', state='disabled')
-        vs = ttk.Scrollbar(box, orient='vertical', command=self.log_text.yview)
-        hs = ttk.Scrollbar(box, orient='horizontal', command=self.log_text.xview)
+        self.log_text = tk.Text(box, bg='#1c1c1e', fg='#e5e5ea', insertbackground='#e5e5ea',
+                                font=FONT_MONO, bd=0, wrap='none', state='disabled',
+                                padx=10, pady=8, selectbackground='#0a84ff')
+        vs = ttk.Scrollbar(box, orient='vertical', command=self.log_text.yview,
+                           style='Log.Vertical.TScrollbar')
+        hs = ttk.Scrollbar(box, orient='horizontal', command=self.log_text.xview,
+                           style='Log.Horizontal.TScrollbar')
         self.log_text.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)
         vs.pack(side='right', fill='y')
         hs.pack(side='bottom', fill='x')
         self.log_text.pack(side='left', fill='both', expand=True)
 
-        self.log_text.tag_configure('err', foreground='#ff8080')
-        self.log_text.tag_configure('ok', foreground='#7ee787')
-        self.log_text.tag_configure('warn', foreground='#ffc46b')
-        self.log_text.tag_configure('info', foreground='#79c0ff')
+        self.log_text.tag_configure('err', foreground='#ff6961')
+        self.log_text.tag_configure('ok', foreground='#5dd879')
+        self.log_text.tag_configure('warn', foreground='#ffd60a')
+        self.log_text.tag_configure('info', foreground='#64b5ff')
 
     # -----------------------------------------------------------
     #  日志与状态（线程安全）
@@ -348,10 +505,10 @@ class App(tk.Tk):
     def _apply_devices(self, st):
         self.lbl_adb.configure(
             text='● ADB 已连接' if st.adb else '● ADB 未连接',
-            fg=C_OK if st.adb else '#8b93a3')
+            fg=C_OK if st.adb else C_MUTED)
         self.lbl_fb.configure(
             text='● Fastboot 已连接' if st.fastboot else '● Fastboot 未连接',
-            fg=C_OK if st.fastboot else '#8b93a3')
+            fg=C_OK if st.fastboot else C_MUTED)
 
         # 仅在连接状态真正变化时通知各模式。
         # 否则每次刷新都会触发一轮自动加载，导致任务被"已有任务在执行"挡掉。
@@ -375,9 +532,7 @@ class App(tk.Tk):
         if self._current_key == key and key in self._frames:
             return
 
-        for k, lbl in self._nav_buttons.items():
-            lbl.configure(bg=C_SIDE_ACTIVE if k == key else C_SIDE,
-                          fg='#ffffff' if k == key else '#d6dae2')
+        self._highlight_nav(key)
 
         # 销毁当前内容区，并从缓存中剔除已销毁的 frame。
         # 否则再次进入同一模式时会拿到已 destroy 的控件，pack 时报
@@ -408,6 +563,7 @@ class App(tk.Tk):
         import mode_logs
         import mode_xposed
         import mode_reboot
+        import mode_links
 
         mapping = {
             'status': mode_status.StatusFrame,
@@ -421,6 +577,7 @@ class App(tk.Tk):
             'log': mode_logs.LogFrame,
             'xposed': mode_xposed.XposedFrame,
             'reboot': mode_reboot.RebootFrame,
+            'links': mode_links.LinksFrame,
         }
         return mapping[key](self.content, self)
 
@@ -523,20 +680,25 @@ def panel(parent, title=None):
         lf = ttk.Labelframe(parent, text=' %s ' % title, padding=12)
         lf.pack(fill='both', expand=True)
         return lf
-    fr = tk.Frame(parent, bg=C_PANEL, highlightbackground='#e2e5ea',
+    fr = tk.Frame(parent, bg=C_PANEL, highlightbackground=C_BORDER,
                   highlightthickness=1)
     fr.pack(fill='both', expand=True)
     return fr
 
 
 def header(parent, title, subtitle=''):
-    """面板标题区。"""
+    """面板标题区：左侧强调竖条 + 标题 + 副标题 + 底部细分割线。"""
     box = tk.Frame(parent, bg=C_PANEL)
-    box.pack(fill='x', pady=(0, 10))
-    ttk.Label(box, text=title, style='Title.TLabel').pack(anchor='w')
+    box.pack(fill='x', pady=(0, 12))
+
+    line = tk.Frame(box, bg=C_PANEL)
+    line.pack(anchor='w', fill='x')
+    tk.Frame(line, bg=C_ACCENT, width=4, height=22).pack(side='left', pady=(1, 0))
+    ttk.Label(line, text=title, style='Title.TLabel').pack(side='left', padx=(8, 0))
     if subtitle:
         ttk.Label(box, text=subtitle, style='Muted.TLabel',
-                  wraplength=680, justify='left').pack(anchor='w', pady=(3, 0))
+                  wraplength=720, justify='left').pack(anchor='w', pady=(4, 0))
+    tk.Frame(box, bg=C_BORDER, height=1).pack(fill='x', pady=(10, 0))
     return box
 
 
@@ -545,6 +707,125 @@ def button(parent, text, command, accent=False):
                      style='Accent.TButton' if accent else 'TButton')
     btn.pack(side='left', padx=(0, 8), pady=4)
     return btn
+
+
+def section(parent, title, hint=''):
+    """分区标题：小色块 + 标题 + 可选说明，用于同一面板内的逻辑分组。"""
+    row = tk.Frame(parent, bg=C_PANEL)
+    row.pack(fill='x', pady=(10, 6))
+    tk.Frame(row, bg=C_ACCENT, width=3, height=14).pack(side='left')
+    tk.Label(row, text=title, bg=C_PANEL, fg=C_TEXT,
+             font=FONT_BOLD).pack(side='left', padx=(7, 0))
+    if hint:
+        tk.Label(row, text=hint, bg=C_PANEL, fg=C_MUTED,
+                 font=FONT_SMALL).pack(side='left', padx=(8, 0))
+    return row
+
+
+def badge(parent, text, color=C_ACCENT, bg=None):
+    """小圆角徽章：用于状态、标签、类型等。返回 Label。"""
+    lbl = tk.Label(parent, text=text, fg=color, bg=bg or C_PANEL,
+                   font=('Microsoft YaHei UI', 8, 'bold'), padx=7, pady=1,
+                   highlightbackground=color, highlightthickness=1)
+    return lbl
+
+
+def dot(parent, color, text='', bg=None, font=None):
+    """状态圆点 + 说明文字，返回 (容器, 圆点 Label, 文字 Label)。"""
+    frame = tk.Frame(parent, bg=bg or C_PANEL)
+    d = tk.Label(frame, text='●', fg=color, bg=bg or C_PANEL,
+                 font=('Microsoft YaHei UI', 8))
+    d.pack(side='left')
+    t = tk.Label(frame, text=text, fg=C_TEXT, bg=bg or C_PANEL,
+                 font=font or FONT)
+    t.pack(side='left', padx=(5, 0))
+    return frame, d, t
+
+
+def card(parent, accent=None, fill=C_PANEL, pad=(12, 10)):
+    """圆角感卡片容器：细边框 + 可选左侧强调色条。返回可放置内容的 Frame。"""
+    outer = tk.Frame(parent, bg=fill, highlightbackground=C_BORDER,
+                     highlightthickness=1)
+    if accent:
+        tk.Frame(outer, bg=accent, width=3).pack(side='left', fill='y')
+    inner = tk.Frame(outer, bg=fill)
+    inner.pack(side='left', fill='both', expand=True,
+               padx=pad[0], pady=pad[1])
+    return outer, inner
+
+
+def stat(parent, label, value='—', color=C_TEXT, bg=C_CARD):
+    """统计小卡：上方说明 + 下方数值。返回可更新数值的 Label。"""
+    box = tk.Frame(parent, bg=bg, highlightbackground=C_BORDER,
+                   highlightthickness=1)
+    tk.Label(box, text=label, bg=bg, fg=C_MUTED,
+             font=FONT_SMALL, anchor='w').pack(fill='x', padx=12, pady=(9, 0))
+    val = tk.Label(box, text=value, bg=bg, fg=color, font=FONT_BOLD, anchor='w')
+    val.pack(fill='x', padx=12, pady=(1, 9))
+    return box, val
+
+
+def collapsible(parent, title, expanded=False, hint=''):
+    """创建一个可折叠区域，返回内部容器 Frame。
+
+    - title：折叠标题（点击标题栏切换展开/收起）
+    - expanded：初始是否展开，默认折叠
+    - hint：标题右侧的浅色说明文字
+    - 返回值为内容容器，调用方直接往里面 pack 控件即可。
+    """
+    head = tk.Frame(parent, bg='#f5f5f7', cursor='hand2',
+                    highlightbackground=C_BORDER, highlightthickness=1)
+    head.pack(fill='x', pady=(8, 0))
+
+    # 左侧强调色条，增强可点击感知
+    bar = tk.Frame(head, bg=C_ACCENT, width=3)
+    bar.pack(side='left', fill='y')
+
+    arrow = tk.Label(head, text='▼' if expanded else '▶', bg='#f5f5f7',
+                     fg=C_ACCENT, font=('Microsoft YaHei UI', 9))
+    arrow.pack(side='left', padx=(10, 4), pady=7)
+    lbl = tk.Label(head, text=title, bg='#f5f5f7', fg=C_TEXT,
+                   font=FONT_BOLD, anchor='w')
+    lbl.pack(side='left', pady=7)
+    if hint:
+        tk.Label(head, text=hint, bg='#f5f5f7', fg=C_MUTED,
+                 font=FONT_SMALL, anchor='w').pack(
+            side='left', padx=(8, 0), pady=7)
+
+    hover_widgets = (head, arrow, lbl, bar)
+
+    def _set_head_bg(color):
+        for w in (head, arrow, lbl):
+            w.configure(bg=color)
+
+    def _on_enter(_e=None):
+        _set_head_bg('#ebebf0')
+
+    def _on_leave(_e=None):
+        _set_head_bg('#f5f5f7')
+
+    body = tk.Frame(parent, bg=C_PANEL)
+    body._collapsed = not expanded
+
+    def toggle(_e=None):
+        if body._collapsed:
+            # 展开：插回 head 之后，保持控件顺序
+            body.pack(fill='x', after=head)
+            body._collapsed = False
+            arrow.configure(text='▼')
+        else:
+            body.pack_forget()
+            body._collapsed = True
+            arrow.configure(text='▶')
+
+    for w in hover_widgets:
+        w.bind('<Button-1>', toggle)
+        w.bind('<Enter>', _on_enter)
+        w.bind('<Leave>', _on_leave)
+
+    if expanded:
+        body.pack(fill='x', after=head)
+    return body
 
 
 def widget_alive(widget):

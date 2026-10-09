@@ -23,22 +23,22 @@ class RebootFrame(tk.Frame):
                   '通常 10~30 秒恢复，可用于让刚禁用 / 启用的模块生效。')
 
         # 软重启主卡片（推荐操作，突出显示）
-        soft = tk.Frame(inner, bg='#eef6ff', highlightbackground='#4a90d9',
-                        highlightthickness=1)
+        soft, sb = ui.card(inner, accent=ui.C_ACCENT, fill=ui.C_ACCENT_LIGHT,
+                           pad=(12, 12))
         soft.pack(fill='x', pady=(0, 12))
-        tk.Label(soft, text='软重启系统框架（推荐）', bg='#eef6ff', fg=ui.C_SIDE_ACTIVE,
-                 font=('Microsoft YaHei UI', 12, 'bold')).pack(anchor='w', padx=12, pady=(12, 2))
-        tk.Label(soft,
+        tk.Label(sb, text='软重启系统框架（推荐）', bg=ui.C_ACCENT_LIGHT,
+                 fg=ui.C_ACCENT, font=('Microsoft YaHei UI', 12, 'bold')).pack(anchor='w')
+        tk.Label(sb,
                  text='重启 zygote 与系统服务，让模块 / Root 服务重新加载。\n'
                       '不切断电源、不清除数据，比完整重启快得多。\n'
                       '执行期间手机可能短暂黑屏或卡顿，属正常现象。',
-                 bg='#eef6ff', fg=ui.C_TEXT, font=('Microsoft YaHei UI', 9),
-                 justify='left').pack(anchor='w', padx=12)
-        ui.button(soft, '立即软重启', self.soft, accent=True).pack(anchor='w', padx=12, pady=(8, 12))
+                 bg=ui.C_ACCENT_LIGHT, fg=ui.C_TEXT, font=ui.FONT_SMALL,
+                 justify='left').pack(anchor='w', pady=(2, 0))
+        ui.button(sb, '立即软重启', self.soft, accent=True).pack(anchor='w',
+                                                                pady=(8, 0))
 
         # 其它重启方式
-        tk.Label(inner, text='其它重启方式', bg=ui.C_PANEL, fg=ui.C_TEXT,
-                 font=ui.FONT_BOLD).pack(anchor='w', pady=(4, 6))
+        ui.section(inner, '其它重启方式')
 
         grid = tk.Frame(inner, bg=ui.C_PANEL)
         grid.pack(fill='x')
@@ -50,23 +50,22 @@ class RebootFrame(tk.Frame):
                    '进入 Recovery', self.recovery, ui.C_WARN, 0, 1)
         self._card(grid, '重启到 Fastboot', '进入 bootloader 模式，\n'
                                             '可搭配模式 3 做分区提权。',
-                   '进入 Fastboot', self.bootloader, ui.C_SIDE_ACTIVE, 1, 0)
+                   '进入 Fastboot', self.bootloader, ui.C_ACCENT, 1, 0)
         self._card(grid, '关机', '彻底关闭手机电源。\n'
                                  '关机后需手动按电源键开机。',
                    '关闭手机', self.poweroff, ui.C_MUTED, 1, 1)
 
     def _card(self, parent, title, desc, btn, cmd, color, row, col):
         """构建一个重启选项卡片。"""
-        card = tk.Frame(parent, bg=ui.C_PANEL, highlightbackground='#e2e5ea',
-                        highlightthickness=1)
-        card.grid(row=row, column=col, sticky='nsew', padx=(0, 8) if col == 0 else (8, 0),
-                  pady=(0, 8))
+        card, body = ui.card(parent, accent=color)
+        card.grid(row=row, column=col, sticky='nsew',
+                  padx=(0, 8) if col == 0 else (8, 0), pady=(0, 8))
         parent.grid_columnconfigure(col, weight=1)
-        tk.Label(card, text=title, bg=ui.C_PANEL, fg=color,
-                 font=ui.FONT_BOLD).pack(anchor='w', padx=12, pady=(12, 2))
-        tk.Label(card, text=desc, bg=ui.C_PANEL, fg=ui.C_MUTED,
-                 font=('Microsoft YaHei UI', 9), justify='left').pack(anchor='w', padx=12)
-        ui.button(card, btn, cmd).pack(anchor='w', padx=12, pady=(8, 12))
+        tk.Label(body, text=title, bg=ui.C_PANEL, fg=color,
+                 font=ui.FONT_BOLD).pack(anchor='w')
+        tk.Label(body, text=desc, bg=ui.C_PANEL, fg=ui.C_MUTED,
+                 font=ui.FONT_SMALL, justify='left').pack(anchor='w', pady=(2, 6))
+        ui.button(body, btn, cmd)
 
     # -----------------------------------------------------------
     def on_device_change(self, st):

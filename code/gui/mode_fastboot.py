@@ -21,60 +21,91 @@ class FastbootFrame(tk.Frame):
 
         ui.header(inner, 'Fastboot 分区提权流程',
                   '通过 Fastboot 下发 androidboot.selinux=permissive 参数，'
-                  '使系统以宽松模式启动后完成提权，再恢复强制模式。\n'
-                  '建议按 [1] → [6] 顺序执行；也可直接使用一键完整流程。')
+                  '使系统以宽松模式启动后完成提权。\n'
+                  '新版 KernelSU 通常只需 [1]→[3]，之后在管理器点「越狱」即可。')
 
         # 顶部一键流程
         top = tk.Frame(inner, bg=ui.C_PANEL)
         top.pack(fill='x', pady=(0, 10))
         ui.button(top, '★ 一键完整流程', self.do_all, accent=True)
         ui.button(top, '刷新设备连接', app.refresh_devices)
+        ui.button(top, '检查 Fastboot 连接', self.check_fb)
+        ui.button(top, '检查 Root 状态', self.check_root)
 
-        self.lbl_dev = ttk.Label(inner, text='设备状态：检测中...', style='Panel.TLabel')
-        self.lbl_dev.pack(anchor='w', pady=(0, 10))
+        # 设备状态徽章
+        badge = tk.Frame(inner, bg=ui.C_BG, highlightbackground=ui.C_BORDER,
+                         highlightthickness=1)
+        badge.pack(anchor='w', pady=(0, 12))
+        self.badge_dev = badge
+        self.lbl_dev = tk.Label(badge, text='设备状态：检测中...', bg=ui.C_BG,
+                                fg=ui.C_MUTED, font=ui.FONT_SMALL,
+                                padx=10, pady=4)
+        self.lbl_dev.pack()
 
-        # 分步按钮网格
+        # ── 常用步骤（新版 KernelSU）──
+        ui.section(inner, '常用流程（新版 KernelSU）', '通常只需执行 [1]→[3]')
         grid = tk.Frame(inner, bg=ui.C_PANEL)
         grid.pack(fill='x')
 
-        steps = [
+        common_steps = [
             ('1. 重启进入 Fastboot', '重启设备到 bootloader', self.step1),
             ('2. 设置 SELinux 宽松', '下发 permissive 启动参数', self.step2),
             ('3. 继续启动系统', 'fastboot continue', self.step3),
+        ]
+        self._render_steps(grid, common_steps)
+
+        tk.Label(inner, text='完成 [3] 后，打开 KernelSU 管理器点「越狱」即可；'
+                             '若需手动提权，再展开下方旧版流程。',
+                 bg=ui.C_PANEL, fg=ui.C_MUTED, font=ui.FONT_SMALL,
+                 anchor='w', wraplength=720, justify='left').pack(anchor='w',
+                                                                  pady=(2, 0))
+
+        # ── 旧版 KernelSU 补充流程（默认折叠）──
+        fold = ui.collapsible(inner, '旧版 KernelSU 流程（步骤 4~7）',
+                              expanded=False, hint='新版通常无需')
+        leg = tk.Frame(fold, bg=ui.C_PANEL)
+        leg.pack(fill='x', padx=2, pady=(6, 0))
+
+        tk.Label(leg, text='以下步骤用于较早版本的 KernelSU（需手动推送 ksud 并执行漏洞提权）：',
+                 bg=ui.C_PANEL, fg=ui.C_MUTED, font=ui.FONT_SMALL,
+                 anchor='w', wraplength=680, justify='left').pack(anchor='w', pady=(0, 4))
+
+        leg_grid = tk.Frame(leg, bg=ui.C_PANEL)
+        leg_grid.pack(fill='x')
+        legacy_steps = [
             ('4. 等待系统启动完成', '轮询 sys.boot_completed', self.step4),
             ('5. 推送 ksud', 'adb push + chmod', self.step5),
             ('6. 执行漏洞提权', 'service call late-load', self.step6),
             ('7. 恢复 SELinux 强制', 'setenforce 1', self.step7),
         ]
+        self._render_steps(leg_grid, legacy_steps)
 
+    def _render_steps(self, grid, steps):
+        """把步骤列表渲染成两列卡片网格。"""
         for i, (title, desc, cmd) in enumerate(steps):
             row, col = divmod(i, 2)
-            card = tk.Frame(grid, bg='#f7f9fc', highlightbackground='#e2e5ea',
-                            highlightthickness=1)
-            card.grid(row=row, column=col, sticky='nsew', padx=(0, 8), pady=4)
-            grid.columnconfigure(col, weight=1)
+            card, txt = ui.card(grid, accent=ui.C_ACCENT, fill=ui.C_CARD,
+                                pad=(12, 10))
+            card.grid(row=row, column=col, sticky='nsew',
+                      padx=(0, 10), pady=(0, 10))
+            grid.columnconfigure(col, weight=1, uniform='stepcol')
 
-            txt = tk.Frame(card, bg='#f7f9fc')
-            txt.pack(side='left', fill='both', expand=True, padx=(10, 0), pady=8)
-            tk.Label(txt, text=title, bg='#f7f9fc', fg=ui.C_TEXT,
+            tk.Label(txt, text=title, bg=ui.C_CARD, fg=ui.C_TEXT,
                      font=ui.FONT_BOLD, anchor='w').pack(anchor='w')
-            tk.Label(txt, text=desc, bg='#f7f9fc', fg=ui.C_MUTED,
-                     font=('Microsoft YaHei UI', 8), anchor='w').pack(anchor='w')
+            tk.Label(txt, text=desc, bg=ui.C_CARD, fg=ui.C_MUTED,
+                     font=ui.FONT_SMALL, anchor='w').pack(
+                anchor='w', pady=(2, 0))
 
             ttk.Button(card, text='执行', command=cmd, width=6).pack(
-                side='right', padx=8)
-
-        # 底部操作
-        bottom = tk.Frame(inner, bg=ui.C_PANEL)
-        bottom.pack(fill='x', pady=(12, 0))
-        ui.button(bottom, '检查 Fastboot 连接', self.check_fb)
-        ui.button(bottom, '检查 Root 状态', self.check_root)
+                side='right', padx=12)
 
     def on_device_change(self, st):
         self.lbl_dev.configure(
             text='设备状态：%s' % ('Fastboot 已连接' if st.fastboot else
                                   ('ADB 已连接' if st.adb else '未检测到设备')),
             foreground=ui.C_OK if st.any else ui.C_ERR)
+        self.badge_dev.configure(
+            highlightbackground=ui.C_OK if st.any else ui.C_BORDER)
 
     # -----------------------------------------------------------
     def check_fb(self):
@@ -250,7 +281,8 @@ class FastbootFrame(tk.Frame):
                 '  3. 继续启动系统\n'
                 '  4. 等待系统启动完成\n'
                 '  5. 推送 ksud\n'
-                '  6. 执行漏洞提权\n\n'
+                '  6. 执行漏洞提权（旧版 KernelSU）\n\n'
+                '新版 KernelSU 执行到 [3] 后，在管理器点「越狱」即可。\n'
                 '全程需要数分钟，期间请勿断开 USB。是否开始？'):
             return
         self.app.run_task(self._work_all, busy_text='正在执行一键流程...',

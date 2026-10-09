@@ -62,7 +62,7 @@ class ModulesFrame(tk.Frame):
         tip = tk.Label(inner,
                        text='提示：禁用 = 写入 disable 标记，文件保留、重启后不加载，可随时启用；'
                             '卸载 = 彻底删除目录，不可撤销。两者均重启后生效。',
-                       bg=ui.C_PANEL, fg=ui.C_WARN, font=('Microsoft YaHei UI', 9))
+                       bg=ui.C_PANEL, fg=ui.C_WARN, font=ui.FONT_SMALL)
         tip.pack(anchor='w', pady=(8, 0))
 
     def on_device_change(self, st):

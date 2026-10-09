@@ -35,23 +35,23 @@ class BackupFrame(tk.Frame):
         ui.button(bar, '刷新', self.refresh_info)
 
         # 备份信息
-        info = tk.Frame(inner, bg='#f7f9fc', highlightbackground='#e2e5ea',
-                        highlightthickness=1)
+        info, ib = ui.card(inner, accent=ui.C_ACCENT, fill=ui.C_CARD, pad=(12, 10))
         info.pack(fill='x', pady=(14, 10))
-        self.lbl_path = tk.Label(info, text='', bg='#f7f9fc', fg=ui.C_TEXT,
+        self.lbl_path = tk.Label(ib, text='', bg=ui.C_CARD, fg=ui.C_TEXT,
                                  font=ui.FONT, anchor='w', justify='left')
-        self.lbl_path.pack(anchor='w', padx=12, pady=(10, 2))
-        self.lbl_time = tk.Label(info, text='', bg='#f7f9fc', fg=ui.C_MUTED,
-                                 font=('Microsoft YaHei UI', 9), anchor='w')
-        self.lbl_time.pack(anchor='w', padx=12, pady=(0, 10))
+        self.lbl_path.pack(anchor='w')
+        self.lbl_time = tk.Label(ib, text='', bg=ui.C_CARD, fg=ui.C_MUTED,
+                                 font=ui.FONT_SMALL, anchor='w')
+        self.lbl_time.pack(anchor='w', pady=(2, 0))
 
         # 内容预览
-        tk.Label(inner, text='备份内容预览', bg=ui.C_PANEL, fg=ui.C_TEXT,
-                 font=ui.FONT_BOLD).pack(anchor='w')
-        box = tk.Frame(inner, bg='#1e222b')
-        box.pack(fill='both', expand=True, pady=(6, 0))
-        self.preview = tk.Text(box, bg='#1e222b', fg='#c9d1d9', font=ui.FONT_MONO,
-                               bd=0, wrap='none', state='disabled')
+        ui.section(inner, '备份内容预览')
+        box = tk.Frame(inner, bg='#1c1c1e', highlightbackground='#2c2c2e',
+                       highlightthickness=1)
+        box.pack(fill='both', expand=True)
+        self.preview = tk.Text(box, bg='#1c1c1e', fg='#e5e5ea', font=ui.FONT_MONO,
+                               bd=0, wrap='none', state='disabled', padx=10, pady=8,
+                               selectbackground='#0a84ff')
         vs = ttk.Scrollbar(box, orient='vertical', command=self.preview.yview)
         self.preview.configure(yscrollcommand=vs.set)
         vs.pack(side='right', fill='y')

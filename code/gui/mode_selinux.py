@@ -23,45 +23,42 @@ class SelinuxFrame(tk.Frame):
                   'Enforcing（强制）为正常安全状态。Fastboot 下发的参数仅本次启动有效。')
 
         # 当前状态卡
-        card = tk.Frame(inner, bg='#f7f9fc', highlightbackground='#e2e5ea',
-                        highlightthickness=1)
-        card.pack(fill='x', pady=(0, 14))
-        tk.Label(card, text='当前 SELinux 状态', bg='#f7f9fc', fg=ui.C_MUTED,
-                 font=('Microsoft YaHei UI', 9)).pack(anchor='w', padx=12, pady=(10, 2))
-        self.lbl_state = tk.Label(card, text='—', bg='#f7f9fc', fg=ui.C_TEXT,
-                                  font=('Microsoft YaHei UI', 20, 'bold'))
-        self.lbl_state.pack(anchor='w', padx=12)
-        self.lbl_how = tk.Label(card, text='', bg='#f7f9fc', fg=ui.C_MUTED,
-                                font=('Microsoft YaHei UI', 9))
-        self.lbl_how.pack(anchor='w', padx=12, pady=(0, 10))
+        self.state_box, inner_card = ui.stat(
+            inner, '当前 SELinux 状态', value='—', color=ui.C_TEXT)
+        self.state_box.pack(fill='x', pady=(0, 6))
+        self.lbl_how = tk.Label(inner_card, text='', bg=ui.C_CARD, fg=ui.C_MUTED,
+                                font=ui.FONT_SMALL)
+        self.lbl_how.pack(anchor='w', padx=12, pady=(0, 8))
+        # 数值标签直接用 stat 返回的 Label，字体放大
+        self.lbl_state = self.state_box.winfo_children()[1]
+        self.lbl_state.configure(font=('Microsoft YaHei UI', 20, 'bold'))
 
         ui.button(inner, '读取当前状态', self.refresh_state)
 
         # 操作区
+        ui.section(inner, '切换操作', 'Fastboot 下发的参数仅本次启动有效')
         op = tk.Frame(inner, bg=ui.C_PANEL)
-        op.pack(fill='x', pady=(14, 0))
+        op.pack(fill='x')
 
-        left = tk.Frame(op, bg=ui.C_PANEL, highlightbackground='#e2e5ea',
-                        highlightthickness=1)
+        left, lb = ui.card(op, accent=ui.C_WARN)
         left.pack(side='left', fill='both', expand=True, padx=(0, 6))
-        tk.Label(left, text='切换到宽松模式 (Permissive)', bg=ui.C_PANEL,
-                 fg=ui.C_WARN, font=ui.FONT_BOLD).pack(anchor='w', padx=12, pady=(12, 2))
-        tk.Label(left, text='setenforce 0：放宽访问控制，便于调试与排查。',
+        tk.Label(lb, text='切换到宽松模式 (Permissive)', bg=ui.C_PANEL,
+                 fg=ui.C_WARN, font=ui.FONT_BOLD).pack(anchor='w')
+        tk.Label(lb, text='setenforce 0：放宽访问控制，便于调试与排查。',
                  bg=ui.C_PANEL, fg=ui.C_MUTED,
-                 font=('Microsoft YaHei UI', 9), wraplength=300,
-                 justify='left').pack(anchor='w', padx=12)
-        ui.button(left, '切换为 Permissive', lambda: self.set_mode(False))
+                 font=ui.FONT_SMALL, wraplength=300,
+                 justify='left').pack(anchor='w', pady=(2, 6))
+        ui.button(lb, '切换为 Permissive', lambda: self.set_mode(False))
 
-        right = tk.Frame(op, bg=ui.C_PANEL, highlightbackground='#e2e5ea',
-                         highlightthickness=1)
+        right, rb = ui.card(op, accent=ui.C_OK)
         right.pack(side='left', fill='both', expand=True, padx=(6, 0))
-        tk.Label(right, text='切换到强制模式 (Enforcing)', bg=ui.C_PANEL,
-                 fg=ui.C_OK, font=ui.FONT_BOLD).pack(anchor='w', padx=12, pady=(12, 2))
-        tk.Label(right, text='setenforce 1：恢复正常安全策略（推荐）。',
+        tk.Label(rb, text='切换到强制模式 (Enforcing)', bg=ui.C_PANEL,
+                 fg=ui.C_OK, font=ui.FONT_BOLD).pack(anchor='w')
+        tk.Label(rb, text='setenforce 1：恢复正常安全策略（推荐）。',
                  bg=ui.C_PANEL, fg=ui.C_MUTED,
-                 font=('Microsoft YaHei UI', 9), wraplength=300,
-                 justify='left').pack(anchor='w', padx=12)
-        ui.button(right, '切换为 Enforcing', lambda: self.set_mode(True))
+                 font=ui.FONT_SMALL, wraplength=300,
+                 justify='left').pack(anchor='w', pady=(2, 6))
+        ui.button(rb, '切换为 Enforcing', lambda: self.set_mode(True))
 
     def on_device_change(self, st):
         if st.adb:

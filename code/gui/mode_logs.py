@@ -51,8 +51,8 @@ class LogFrame(tk.Frame):
 
         lb_box = tk.Frame(left, bg=ui.C_PANEL)
         lb_box.pack(fill='both', expand=True)
-        self.listbox = tk.Listbox(lb_box, font=('Consolas', 9), bd=0,
-                                  highlightbackground='#e2e5ea', highlightthickness=1,
+        self.listbox = tk.Listbox(lb_box, font=(ui.FONT_MONO[0], 9), bd=0,
+                                  highlightbackground=ui.C_BORDER, highlightthickness=1,
                                   activestyle='none', selectbackground=ui.C_ACCENT,
                                   selectforeground='#ffffff')
         sb = ttk.Scrollbar(lb_box, orient='vertical', command=self.listbox.yview)
@@ -65,10 +65,12 @@ class LogFrame(tk.Frame):
         right.pack(side='left', fill='both', expand=True, padx=(10, 0))
         tk.Label(right, text='日志内容', bg=ui.C_PANEL, fg=ui.C_TEXT,
                  font=ui.FONT_BOLD).pack(anchor='w', pady=(0, 4))
-        box = tk.Frame(right, bg='#1e222b')
+        box = tk.Frame(right, bg='#1c1c1e', highlightbackground='#2c2c2e',
+                       highlightthickness=1)
         box.pack(fill='both', expand=True)
-        self.text = tk.Text(box, bg='#1e222b', fg='#c9d1d9', font=ui.FONT_MONO,
-                            bd=0, wrap='none', state='disabled')
+        self.text = tk.Text(box, bg='#1c1c1e', fg='#e5e5ea', font=ui.FONT_MONO,
+                            bd=0, wrap='none', state='disabled',
+                            padx=10, pady=8, selectbackground='#0a84ff')
         vs = ttk.Scrollbar(box, orient='vertical', command=self.text.yview)
         hs = ttk.Scrollbar(box, orient='horizontal', command=self.text.xview)
         self.text.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)

@@ -519,6 +519,82 @@ def power_off(runner):
     return runner.run(['adb', 'shell', 'reboot', '-p'], quiet=True, timeout=20).ok
 
 
+# ---------------------------------------------------------------
+#  Zygisk / Vector 激活（临时 Root late-load 恢复流程）
+# ---------------------------------------------------------------
+ZYGISK_MODULE = 'zygisksu'
+ZYGISK_POST_FS_DATA = '/data/adb/modules/%s/post-fs-data.sh' % ZYGISK_MODULE
+ZYGISK_DAEMON_STATUS = '/data/adb/modules/%s/bin/zygiskd' % ZYGISK_MODULE
+VECTOR_CLI = '/data/adb/modules/zygisk_vector/cli'
+
+
+def zygisk_daemon_running(runner):
+    """Zygisk 守护进程（zn-daemon）是否在运行。
+
+    注意：真实进程名是 zn-daemon，不是 zygiskd，早期误用 zygiskd
+    匹配会导致「服务未运行」的错误判断。
+    """
+    res = runner.shell('ps -A -o NAME', quiet=True, timeout=15)
+    for line in res.lines:
+        if line.strip() == 'zn-daemon':
+            return True
+    return False
+
+
+def zygisk_status(runner):
+    """读取 zygiskd status，返回原始文本（失败返回空串）。"""
+    res = runner.su('%s status' % ZYGISK_DAEMON_STATUS, quiet=True, timeout=20)
+    return res.text if res.ok else ''
+
+
+def zygisk_zygote_count(runner):
+    """从 status 文本解析已接管的 zygote 数量，无法解析返回 -1。"""
+    text = zygisk_status(runner)
+    m = re.search(r'zygote_states\s*:\s*(\d+)', text)
+    if m:
+        return int(m.group(1))
+    return -1
+
+
+def vector_fd_attached(runner):
+    """Vector 的 isFdAttached 状态：True/False/None（无法判断）。"""
+    res = runner.su('sh %s --json status' % VECTOR_CLI, quiet=True, timeout=20)
+    if not res.ok:
+        return None
+    m = re.search(r'"isFdAttached"\s*:\s*(true|false)', res.text, re.I)
+    if m:
+        return m.group(1).lower() == 'true'
+    return None
+
+
+def start_zygisk_daemon(runner):
+    """重越狱后手动补触发 post-fs-data，拉起 zn-daemon。
+
+    late-load 模式下 ksud 是后注入的，不会自动重放 post-fs-data 事件，
+    而 Zygisk Next 依赖该事件启动 zn-daemon，故必须手动补执行。
+    返回 (ok, 说明)。
+    """
+    if not runner.su('test -f ' + ZYGISK_POST_FS_DATA, quiet=True, timeout=15).ok:
+        return False, '未找到 %s，请确认已安装 Zygisk Next 模块（%s）。' % (
+            ZYGISK_POST_FS_DATA, ZYGISK_MODULE)
+    res = runner.su('sh ' + ZYGISK_POST_FS_DATA, timeout=60)
+    return res.ok, res.text
+
+
+def restart_zygote(runner, service):
+    """通过 setprop ctl.restart 重启指定的 zygote init 服务。
+
+    Android 已移除 ctl 可执行文件，故用 setprop 触发 init 重启服务。
+    service：'zygote'（64 位）或 'zygote_mi_secondary'（小米 32 位转译层）。
+    """
+    return runner.su('setprop ctl.restart %s' % service, quiet=True, timeout=30).ok
+
+
+# 小米机型两个 zygote 的 init 服务名（详见排查记录）
+ZYGOTE_SVC_64 = 'zygote'
+ZYGOTE_SVC_32 = 'zygote_mi_secondary'
+
+
 
 # ---------------------------------------------------------------
 #  Xposed 框架检测

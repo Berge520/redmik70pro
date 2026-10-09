@@ -61,9 +61,11 @@ class ZygiskFrame(tk.Frame):
 
         ui.header(inner, 'Zygisk 崩溃修复向导',
                   'Zygisk / ZygiskNext 等模块异常会导致应用启动即闪退、甚至开机变砖。\n'
-                  '本向导通过安全模式禁用问题模块，请严格按下述步骤操作。')
+                  '本向导通过安全模式禁用问题模块，请严格按下述步骤操作。\n'
+                  '另提供「一键激活」：临时 Root 重越狱后恢复 Zygisk 与 Vector 框架。')
 
         # 步骤指引
+        ui.section(inner, '崩溃排查步骤', '请严格按顺序执行，避免误卸载框架本体')
         steps = [
             ('① 重启进入安全模式',
              '让手机重启，在开机出现品牌 Logo 时长按音量键进入系统安全模式。'),
@@ -75,14 +77,13 @@ class ZygiskFrame(tk.Frame):
              '卸载完成后重启手机退出安全模式，验证应用是否恢复正常。'),
         ]
         for title, desc in steps:
-            row = tk.Frame(inner, bg='#f7f9fc', highlightbackground='#e2e5ea',
-                           highlightthickness=1)
+            row, body = ui.card(inner, accent=ui.C_ACCENT, fill=ui.C_CARD, pad=(12, 8))
             row.pack(fill='x', pady=3)
-            tk.Label(row, text=title, bg='#f7f9fc', fg=ui.C_TEXT, font=ui.FONT_BOLD,
-                     anchor='w', width=18).pack(side='left', padx=(12, 0), pady=9)
-            tk.Label(row, text=desc, bg='#f7f9fc', fg=ui.C_MUTED,
-                     font=('Microsoft YaHei UI', 9), anchor='w',
-                     wraplength=520, justify='left').pack(side='left', padx=(6, 12), pady=9)
+            tk.Label(body, text=title, bg=ui.C_CARD, fg=ui.C_TEXT, font=ui.FONT_BOLD,
+                     anchor='w', width=18).pack(side='left')
+            tk.Label(body, text=desc, bg=ui.C_CARD, fg=ui.C_MUTED,
+                     font=ui.FONT_SMALL, anchor='w',
+                     wraplength=520, justify='left').pack(side='left', padx=(6, 0))
 
         # 操作
         bar = tk.Frame(inner, bg=ui.C_PANEL)
@@ -92,6 +93,23 @@ class ZygiskFrame(tk.Frame):
         self.btn_fix.pack(side='left', padx=(0, 8), pady=4)
         self.lbl_summary = tk.Label(bar, text='', bg=ui.C_PANEL, fg=ui.C_MUTED, font=ui.FONT)
         self.lbl_summary.pack(side='left', padx=(8, 0))
+
+        # ---- Zygisk / Vector 激活（临时 Root late-load 恢复） ----
+        ui.section(inner, 'Zygisk / Vector 激活', '临时 Root 重越狱后必做')
+        tk.Label(inner, text='临时 Root(late-load)重越狱后 Zygisk 不会自启，'
+                             '导致 Vector 显示「未激活」。点「一键激活」按序执行：'
+                             '补启动 Zygisk → 重启 64 位 zygote → 重启 32 位 zygote。',
+                 bg=ui.C_PANEL, fg=ui.C_MUTED, font=ui.FONT_SMALL,
+                 anchor='w', wraplength=680, justify='left').pack(anchor='w', pady=(0, 6))
+
+        act = tk.Frame(inner, bg=ui.C_PANEL)
+        act.pack(fill='x')
+        ui.button(act, '检测 Zygisk / Vector 状态', self.check_zygisk)
+        self.btn_activate = ttk.Button(act, text='一键激活（补启动 Zygisk + 重启 zygote）',
+                                       command=self.activate)
+        self.btn_activate.pack(side='left', padx=(0, 8), pady=4)
+        self.lbl_zygisk = tk.Label(act, text='', bg=ui.C_PANEL, fg=ui.C_MUTED, font=ui.FONT)
+        self.lbl_zygisk.pack(side='left', padx=(8, 0))
 
         tk.Label(inner, text='全部模块（状态说明：可疑 = 名称含 %s，建议卸载；框架本体 = 运行必需，请勿卸载）'
                  % '、'.join(SUSPECT_KEYS),
@@ -127,6 +145,135 @@ class ZygiskFrame(tk.Frame):
             self.app.log_out('[提示] 已恢复上次扫描结果，点「扫描全部模块」可重新扫描。')
             return
         self.scan()
+
+    # -----------------------------------------------------------
+    #  Zygisk / Vector 激活（临时 Root late-load 恢复流程）
+    # -----------------------------------------------------------
+    def _show_zygisk(self, text, color=None):
+        if not ui.widget_alive(self.lbl_zygisk):
+            return
+        self.lbl_zygisk.configure(text=text, fg=color or ui.C_MUTED)
+
+    def check_zygisk(self):
+        if not ui.require_adb(self.app):
+            return
+
+        def job(_ctl):
+            app = self.app
+            r = app.runner
+            app.log_out('---------- 检测 Zygisk / Vector 状态 ----------')
+            if not core.is_root(r):
+                app.log_out('[错误] 未获取 Root，请先执行模式 2 提权。')
+                return None
+            daemon = core.zygisk_daemon_running(r)
+            count = core.zygisk_zygote_count(r)
+            fd = core.vector_fd_attached(r)
+            app.log_out('Zygisk 守护进程(zn-daemon)：%s' % ('运行中' if daemon else '未运行'))
+            app.log_out('已接管 zygote 数量：%s' % (count if count >= 0 else '未知'))
+            app.log_out('Vector isFdAttached：%s'
+                        % ('true' if fd else ('false' if fd is False else '未知（未安装/未运行）')))
+            return daemon, count, fd
+
+        def done(res):
+            if res is None:
+                self._show_zygisk('检测失败（需 Root）', ui.C_ERR)
+                return
+            daemon, count, fd = res
+            if daemon and count >= 2 and fd:
+                self._show_zygisk('Zygisk 已接管 %d 个 zygote · Vector 已激活' % count, ui.C_OK)
+            elif daemon:
+                self._show_zygisk('Zygisk 运行中，接管 %s/2 个 zygote · Vector %s'
+                                  % (count if count >= 0 else '?',
+                                     '已激活' if fd else '未激活'), ui.C_WARN)
+            else:
+                self._show_zygisk('Zygisk 未运行 → Vector 必为「未激活」，请点「一键激活」', ui.C_ERR)
+
+        self.app.run_task(job, on_done=done, busy_text='正在检测 Zygisk / Vector...',
+                          done_text='检测完成')
+
+    def activate(self):
+        if not ui.require_adb(self.app):
+            return
+        if not messagebox.askyesno(
+                '确认激活',
+                '将按顺序执行以下操作：\n'
+                '  1. 补触发 post-fs-data 拉起 Zygisk（zn-daemon）\n'
+                '  2. 重启 64 位 zygote（zygote）\n'
+                '  3. 重启 32 位 zygote（zygote_mi_secondary）\n\n'
+                '重启 zygote 会使系统界面短暂黑屏/重启，属正常现象。\n是否继续？'):
+            return
+
+        def done(res):
+            if res is None:
+                self._show_zygisk('激活流程未完成', ui.C_ERR)
+                return
+            daemon, count, fd = res
+            if daemon and count >= 2 and fd:
+                self._show_zygisk('激活成功：Zygisk 接管 %d 个 zygote · Vector 已激活' % count,
+                                  ui.C_OK)
+            else:
+                self._show_zygisk('激活后：Zygisk %s · 接管 %s/2 · Vector %s'
+                                  % ('运行中' if daemon else '未运行',
+                                     count if count >= 0 else '?',
+                                     '已激活' if fd else '未激活'), ui.C_WARN)
+
+        self.app.run_task(self._work_activate, on_done=done,
+                          busy_text='正在激活 Zygisk / Vector...', done_text='激活流程完成')
+
+    def _work_activate(self, ctl):
+        app = self.app
+        r = app.runner
+
+        app.log_out('========== Zygisk / Vector 一键激活 ==========')
+        if not core.is_root(r):
+            app.log_out('[错误] 未获取 Root，请先执行模式 2 提权。')
+            return None
+
+        # 步骤 1：补启动 Zygisk
+        app.log_out('[步骤1] 补触发 post-fs-data，拉起 Zygisk(zn-daemon)...')
+        ok, msg = core.start_zygisk_daemon(r)
+        if ok:
+            app.log_out('[成功] post-fs-data 已执行。')
+        else:
+            app.log_out('[警告] %s' % msg)
+        time.sleep(2)
+        if core.zygisk_daemon_running(r):
+            app.log_out('[成功] zn-daemon 已在运行。')
+        else:
+            app.log_out('[警告] 未检测到 zn-daemon，后续激活可能失败。')
+
+        # 步骤 2：重启 64 位 zygote
+        app.log_out('[步骤2] 重启 64 位 zygote...')
+        if core.restart_zygote(r, core.ZYGOTE_SVC_64):
+            app.log_out('[成功] 64 位 zygote 已重启。')
+        else:
+            app.log_out('[警告] 64 位 zygote 重启命令未成功返回。')
+        time.sleep(5)
+
+        # 步骤 3：重启 32 位 zygote（小米 tango 转译层）
+        app.log_out('[步骤3] 重启 32 位 zygote(zygote_mi_secondary)...')
+        if core.restart_zygote(r, core.ZYGOTE_SVC_32):
+            app.log_out('[成功] 32 位 zygote 已重启。')
+        else:
+            app.log_out('[警告] 32 位 zygote 重启命令未成功返回。')
+        app.log_out('[提示] 请等待系统界面恢复(约 10~30 秒)后再检测结果。')
+        time.sleep(8)
+
+        # 汇总
+        app.log_out('[步骤4] 复查状态...')
+        daemon = core.zygisk_daemon_running(r)
+        count = core.zygisk_zygote_count(r)
+        fd = core.vector_fd_attached(r)
+        app.log_out('Zygisk 守护进程：%s' % ('运行中' if daemon else '未运行'))
+        app.log_out('已接管 zygote 数量：%s/2' % (count if count >= 0 else '?'))
+        app.log_out('Vector isFdAttached：%s'
+                    % ('true' if fd else ('false' if fd is False else '未知')))
+        if daemon and count >= 2:
+            app.log_out('[成功] Zygisk 已接管全部 zygote，Vector 应已激活。')
+        else:
+            app.log_out('[提示] 若仍未激活，可稍后点「检测 Zygisk / Vector 状态」复查，'
+                        '或重启手机后再试。')
+        return daemon, count, fd
 
     # -----------------------------------------------------------
     def scan(self):

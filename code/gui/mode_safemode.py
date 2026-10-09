@@ -30,16 +30,15 @@ class SafeModeFrame(tk.Frame):
                   '用于抢救因模块导致的无法开机 / 无限重启。')
 
         # 状态卡
-        card = tk.Frame(inner, bg='#f7f9fc', highlightbackground='#e2e5ea',
-                        highlightthickness=1)
-        card.pack(fill='x', pady=(0, 14))
-        self.lbl_marker = tk.Label(card, text='安全模式标记：未检查', bg='#f7f9fc',
+        outer, card = ui.card(inner, accent=ui.C_ACCENT, fill=ui.C_CARD, pad=(12, 10))
+        outer.pack(fill='x', pady=(0, 4))
+        self.lbl_marker = tk.Label(card, text='安全模式标记：未检查', bg=ui.C_CARD,
                                    fg=ui.C_TEXT, font=ui.FONT_BOLD, anchor='w')
-        self.lbl_marker.pack(anchor='w', padx=12, pady=(10, 2))
-        self.lbl_hint = tk.Label(card, text='', bg='#f7f9fc', fg=ui.C_MUTED,
-                                 font=('Microsoft YaHei UI', 9), anchor='w',
+        self.lbl_marker.pack(anchor='w', pady=(0, 2))
+        self.lbl_hint = tk.Label(card, text='', bg=ui.C_CARD, fg=ui.C_MUTED,
+                                 font=ui.FONT_SMALL, anchor='w',
                                  justify='left', wraplength=700)
-        self.lbl_hint.pack(anchor='w', padx=12, pady=(0, 10))
+        self.lbl_hint.pack(anchor='w')
 
         # 操作按钮
         bar = tk.Frame(inner, bg=ui.C_PANEL)
@@ -53,11 +52,9 @@ class SafeModeFrame(tk.Frame):
         self.btn_exit.pack(side='left', padx=(0, 8), pady=4)
 
         # 手动指南
-        man = tk.Frame(inner, bg='#f7f9fc', highlightbackground='#e2e5ea',
-                       highlightthickness=1)
-        man.pack(fill='both', expand=True, pady=(16, 0))
-        tk.Label(man, text='自动写入失败时的手动指南', bg='#f7f9fc', fg=ui.C_TEXT,
-                 font=ui.FONT_BOLD).pack(anchor='w', padx=12, pady=(10, 6))
+        ui.section(inner, '自动写入失败时的手动指南', 'Recovery 下手动删除标记目录同样有效')
+        man_outer, man = ui.card(inner, fill=ui.C_CARD, pad=(12, 10))
+        man_outer.pack(fill='both', expand=True)
         guide = [
             '1. 让手机重启。',
             '2. 在开机出现品牌 Logo 时长按音量下键进入安全模式。',
@@ -70,10 +67,9 @@ class SafeModeFrame(tk.Frame):
             '     /data/adb/modules/<问题模块>/ 目录。',
         ]
         for line in guide:
-            tk.Label(man, text=line, bg='#f7f9fc', fg=ui.C_MUTED,
-                     font=('Microsoft YaHei UI', 9), anchor='w',
-                     justify='left').pack(anchor='w', padx=12)
-        tk.Frame(man, bg='#f7f9fc', height=8).pack()
+            tk.Label(man, text=line, bg=ui.C_CARD, fg=ui.C_MUTED,
+                     font=ui.FONT_SMALL, anchor='w',
+                     justify='left').pack(anchor='w')
 
     def on_device_change(self, st):
         if st.adb:

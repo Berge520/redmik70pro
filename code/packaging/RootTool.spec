@@ -70,5 +70,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    # icon=None,            # 如有 .ico 图标，取消注释并填入路径
+    icon=os.path.join(SPECPATH, 'brand.ico'),   # 应用图标（多尺寸，随 exe 内嵌）
 )

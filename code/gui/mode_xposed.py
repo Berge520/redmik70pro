@@ -37,15 +37,14 @@ class XposedFrame(tk.Frame):
                   '列出模块并支持启用、禁用操作（重启后生效）。')
 
         # 框架状态
-        card = tk.Frame(inner, bg='#f7f9fc', highlightbackground='#e2e5ea',
-                        highlightthickness=1)
-        card.pack(fill='x', pady=(0, 10))
-        self.lbl_type = tk.Label(card, text='框架：未检测', bg='#f7f9fc',
+        outer, card = ui.card(inner, accent=ui.C_ACCENT, fill=ui.C_CARD, pad=(12, 10))
+        outer.pack(fill='x', pady=(0, 4))
+        self.lbl_type = tk.Label(card, text='框架：未检测', bg=ui.C_CARD,
                                  fg=ui.C_TEXT, font=ui.FONT_BOLD, anchor='w')
-        self.lbl_type.pack(anchor='w', padx=12, pady=(10, 2))
-        self.lbl_cli = tk.Label(card, text='', bg='#f7f9fc', fg=ui.C_MUTED,
-                                font=('Microsoft YaHei UI', 9), anchor='w')
-        self.lbl_cli.pack(anchor='w', padx=12, pady=(0, 10))
+        self.lbl_type.pack(anchor='w', pady=(0, 2))
+        self.lbl_cli = tk.Label(card, text='', bg=ui.C_CARD, fg=ui.C_MUTED,
+                                font=ui.FONT_SMALL, anchor='w')
+        self.lbl_cli.pack(anchor='w')
 
         # 工具条
         bar = tk.Frame(inner, bg=ui.C_PANEL)

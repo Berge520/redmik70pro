@@ -41,11 +41,9 @@ class AdbFrame(tk.Frame):
         ui.button(box, '检查 Root 状态', self.do_check_root)
 
         # 说明
-        tip = tk.Frame(inner, bg='#f7f9fc', highlightbackground='#e2e5ea',
-                       highlightthickness=1)
-        tip.pack(fill='x', pady=(16, 0))
-        tk.Label(tip, text='执行流程说明', bg='#f7f9fc', fg=ui.C_TEXT,
-                 font=ui.FONT_BOLD).pack(anchor='w', padx=12, pady=(10, 4))
+        ui.section(inner, '执行流程说明', 'Android 14+ 上该漏洞可能已修复')
+        tip, tb = ui.card(inner, fill=ui.C_CARD, pad=(12, 10))
+        tip.pack(fill='x')
         steps = [
             '1. adb push ksud /data/local/tmp/       （推送提权载荷）',
             '2. adb shell chmod 777 /data/local/tmp/ksud',
@@ -56,9 +54,8 @@ class AdbFrame(tk.Frame):
             '若失败（Android 14+ 常见），请改用模式 3 的 Fastboot 流程。',
         ]
         for s in steps:
-            tk.Label(tip, text=s, bg='#f7f9fc', fg=ui.C_MUTED,
-                     font=ui.FONT_MONO, anchor='w').pack(anchor='w', padx=12)
-        tk.Frame(tip, bg='#f7f9fc', height=8).pack()
+            tk.Label(tb, text=s, bg=ui.C_CARD, fg=ui.C_MUTED,
+                     font=ui.FONT_MONO, anchor='w').pack(anchor='w')
 
     def on_device_change(self, st):
         self.lbl_dev.configure(

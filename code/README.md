@@ -16,6 +16,9 @@ code/
 ├─ gui/                       程序源码（Python，零依赖）
 │  ├─ roottool.pyw            启动器（双击运行，无控制台窗口）
 │  ├─ main.py                 主窗口：侧栏导航 / 状态栏 / 实时日志
+│  ├─ branding.py             应用图标：纯标准库生成多尺寸 ico（打包 + 窗口图标）
+│  ├─ assets/                 界面资源
+│  │  └─ brand.ico            应用图标（由 branding.py 生成）
 │  ├─ core.py                 核心层：路径解析、adb/fastboot 调用、设备检测
 │  ├─ single_instance.py      单实例检测（重复启动时询问是否结束旧实例）
 │  ├─ mode_status.py          模式 1   设备状态检测
@@ -23,12 +26,13 @@ code/
 │  ├─ mode_fastboot.py        模式 3   Fastboot 分区提权（分步 + 一键）
 │  ├─ mode_selinux.py         模式 4   SELinux 模式切换
 │  ├─ mode_modules.py         模式 5   Root 模块管理
-│  ├─ mode_zygisk.py          模式 6   Zygisk 崩溃修复
+│  ├─ mode_zygisk.py          模式 6   Zygisk 崩溃修复 + Vector 一键激活
 │  ├─ mode_safemode.py        模式 7   KernelSU 安全模式自救
 │  ├─ mode_backup.py          模式 8   模块列表备份恢复
 │  ├─ mode_logs.py            模式 9   查看运行日志
 │  ├─ mode_xposed.py          模式 10  Xposed 模块管理
-│  └─ mode_reboot.py          模式 11  重启控制
+│  ├─ mode_reboot.py          模式 11  重启控制
+│  └─ mode_links.py           模式 12  相关链接（GitHub 项目与依赖）
 ├─ tools/                     运行必需的二进制与脚本
 │  ├─ adb.exe                 Android 调试桥
 │  ├─ fastboot.exe            Fastboot 命令行
@@ -38,7 +42,8 @@ code/
 │  ├─ ksud                    KernelSU 提权载荷（push 至设备执行）
 │  └─ fix_lspd.sh             LSPosed / zygiskd 重新注入修复脚本
 ├─ packaging/                 打包配置
-│  └─ RootTool.spec           PyInstaller 打包脚本（生成免安装 exe）
+│  ├─ RootTool.spec           PyInstaller 打包脚本（生成免安装 exe）
+│  └─ brand.ico               打包用应用图标（由 branding.py 生成）
 └─ scripts/                   辅助脚本与笔记
    ├─ Connector.cmd           无线调试配对向导（IP / 端口 / 配对码）
    └─ readme.txt              手动命令速查笔记
@@ -128,12 +133,13 @@ python gui\roottool.pyw
 | 3 | Fastboot 分区提权（分步 + 一键） | Fastboot 模式 |
 | 4 | SELinux 模式切换（Permissive / Enforcing） | ADB + Root，或 Fastboot |
 | 5 | Root 模块管理（查看 / 禁用 / 启用 / 卸载） | ADB + Root |
-| 6 | Zygisk 崩溃修复向导 | ADB + Root |
+| 6 | Zygisk 崩溃修复向导 + Vector 一键激活 | ADB + Root |
 | 7 | KernelSU 安全模式自救（进入 / 退出） | ADB + Root |
 | 8 | 模块列表备份与恢复 | ADB + Root |
 | 9 | 查看运行日志 | 无 |
 | 10 | Xposed 模块管理（Vector / LSPosed / 原始） | ADB + Root |
 | 11 | 重启控制（软重启 / 完整重启 / Recovery / Fastboot / 关机） | ADB 已连接 |
+| 12 | 相关链接（本项目 / KernelSU / Zygisk Next / Vector 仓库） | 无 |
 
 ---
 
@@ -150,7 +156,7 @@ python gui\roottool.pyw
 │              │                                           │
 │  功能模式     │              内容区                        │
 │  （侧栏）     │      （随所选模式切换，含按钮与说明）        │
-│  1 ~ 11      │                                           │
+│  1 ~ 12      │                                           │
 │              ├───────────────────────────────────────────┤
 │              │              实时日志区                     │
 └──────────────┴───────────────────────────────────────────┘
