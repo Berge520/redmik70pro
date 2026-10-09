@@ -37,24 +37,29 @@
 
 ### 第三步 · 一键提权（主推）
 
-打开工具后，按左侧「功能模式」依次操作：
+**核心流程（新版 KernelSU，推荐）**：
+
+1. 工具内 **模式 3 · Fastboot 分区提权**，执行 **[1]→[3]**：
+   *[1] 重启进入 Fastboot → [2] 下发 SELinux 宽松（permissive）参数 → [3] `fastboot continue` 继续启动系统*。
+2. 手机重启完成后，打开手机上的 **KernelSU 管理器**，点击 **「越狱」** 按钮 —— 即可获取本次开机的临时 Root。
+
+> 💡 新版 KernelSU 自带 `ksud`，**无需**手动推送文件或执行 `service call`；工具的模式 3 也提供「★ 一键完整流程」把 [1]→[3] 一次跑完。
+
+**可选的后续操作**：
 
 | 顺序 | 模式 | 操作 | 目的 |
 |--|--|--|--|
-| ① | **模式 1 · 设备状态检测** | 点「检测」 | 确认型号、SDK、SELinux、当前是否已有 Root |
-| ② | **模式 3 · Fastboot 分区提权** | 点「一键流程」 | **主推**：进 Fastboot → 临时 permissive → 注入 `ksud` |
-| ③ | **模式 4 · SELinux 模式切换** | 恢复 `Enforcing` | 提权后按需恢复强制模式 |
-| ④ | **模式 6 · Zygisk 崩溃修复** | 点「一键激活」 | **重越狱后必做**：补启动 Zygisk + 重启两个 zygote，激活 Vector |
-| ⑤ | **模式 5 / 10** | 按需 | 管理 Root 模块 / Xposed 模块 |
+| ① | **模式 4 · SELinux 模式切换** | 恢复 `Enforcing` | 越狱成功后按需恢复强制模式，提升安全性 |
+| ② | **模式 6 · Zygisk / Vector 一键激活** | 点「一键激活」 | **重越狱后（装 Zygisk/Vector 时）必做**：补启动 Zygisk + 重启两个 zygote |
+| ③ | **模式 5 / 10** | 按需 | 管理 Root 模块 / Xposed 模块 |
 
-> ✅ 第 ② 步完成后，打开手机上的 **KernelSU 管理器**确认为「已激活」。
-> 🔁 需要重启时**优先用模式 11 的「软重启」**（或 KernelSU 管理器的「软重启」），**不要点「完整重启」**，否则临时 Root 失效、需重走 ①②。
+> 🔁 需要重启时**优先用模式 11 的「软重启」**（或 KernelSU 管理器的「软重启」），**不要点「完整重启」**，否则临时 Root 失效、需重走第三步。
 
 ### 第四步 · 验证
 
-工具内 **模式 1** 检测，或手机 **KernelSU 管理器**确认：
+手机 **KernelSU 管理器** 或工具内 **模式 1** 检测：
 
-- Root 状态：`uid=0(root)` ✅
+- Root 状态：`uid=0(root)` ✅（管理器显示「已激活」）
 - 需要 Xposed 框架时：**模式 6** 确认 `Zygisk 运行中` + **Vector 已激活** ✅
 
 ---
@@ -76,17 +81,21 @@
 
 `miui.mqsas.IMQSNative` 是 MIUI / 澎湃 OS 系统自带的服务（接口编号 `21`），
 存在**以 root（uid=0）执行 / 加载二进制**的利用点。本方案在不修改任何系统分区的前提下，
-通过该服务接口注入并加载 KernelSU 的 `ksud`（`late-load` 模式），获得本次开机的 root 环境：
+先让系统以 **SELinux 宽松（permissive）模式临时启动**，再借助该服务接口完成 KernelSU
+的 `late-load` 越狱，获得本次开机的 root 环境：
 
 ```
-miui.mqsas.IMQSNative service call 21
-   └─ 以 root(uid=0) 执行 / 加载指定二进制
-        └─ KernelSU ksud (late-load)
-             └─ 本次开机内提供 su 环境（KernelSU Manager 可识别）
+Fastboot: 下发 androidboot.selinux=permissive（临时，不写入分区）
+   └─ 系统以宽容模式启动
+        └─ KernelSU 管理器点「越狱」
+             └─ 经 miui.mqsas.IMQSNative 注入并加载 ksud (late-load)
+                  └─ 本次开机内提供 su 环境（KernelSU Manager 显示「已激活」）
 ```
 
 - **不修改** `/boot` `/system` `/init` → 不影响 OTA、不破坏校验、重启即还原（免解 BL）。
 - 属于**漏洞利用性质**的操作，随固件版本变化，不保证在其它机型 / 固件上可用。
+- 新版 KernelSU 已内置 `ksud`，此时**只需在管理器点「越狱」**；较早版本才需手动
+  推送 `ksud` 并执行 `service call`（即图形工具的**旧版流程**，见下方折叠节）。
 - **图形工具** `code/` 已把该流程做成点击操作，并自带设备检测、模块管理、日志查看等；完整原理与纯命令行等价写法见 [命令行方案](#️-命令行方案旧)。
 
 ---
@@ -144,6 +153,7 @@ miui.mqsas.IMQSNative service call 21
 | `adb devices` 显示 `unauthorized` | 手机屏幕确认授权弹窗，勾选「始终允许」 |
 | `fastboot` 不识别设备 | 检查驱动、换 USB 口 / 数据线、关闭手机助手占用；建议以管理员身份运行 |
 | 注入后 `su` 不可用 | 查看加载日志：`adb pull /sdcard/ksulog.txt`，确认 `ksud` 是否加载成功 |
+| KernelSU 管理器**没有「越狱」按钮** | 属**旧版 KernelSU**：需手动推送 `ksud` 并执行 `service call`（见 [命令行方案](#️-命令行方案旧) 步骤 4~6，或工具模式 3 的「旧版流程」） |
 | KernelSU 显示未加载 | 确认已授予 `shell` root 权限（模式 2 / 管理器内授权） |
 | 重越狱后 Vector「未激活」 | **预期现象**：`late-load` 不触发 `post-fs-data`，用**模式 6「一键激活」**修复；详见 [排查记录](排查记录-Vector未激活.md) |
 | 卡在 MIUI Logo | 强制重启（电源 + 音量上）；可用 `fastboot reboot` 恢复 |

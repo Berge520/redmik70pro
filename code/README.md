@@ -177,9 +177,10 @@ python gui\roottool.pyw
 | 顺序 | 操作 | 目的 |
 |------|------|------|
 | 1 | 模式 1「设备状态检测」→ 点检测 | 确认设备型号、SDK、SELinux、当前是否已有 Root |
-| 2 | 模式 3「Fastboot 分区提权」→ 一键流程 | **主推路径**：进 Fastboot → 临时 permissive → 注入 ksud |
-| 3 | 模式 4「SELinux 模式切换」 | 提权后按需恢复强制模式（`Enforcing`） |
-| 4 | 模式 5 / 10 | 管理 Root 模块、Xposed 模块 |
+| 2 | 模式 3「Fastboot 分区提权」→ [1]→[3] | **主推路径**：进 Fastboot → 下发临时 permissive → `fastboot continue` 继续启动 |
+| 3 | 开机后打开手机 **KernelSU 管理器** → 点「越狱」 | 新版 KernelSU 由管理器自动完成 `ksud late-load`，即得临时 Root |
+| 4 | 模式 4「SELinux 模式切换」 | 越狱后按需恢复强制模式（`Enforcing`） |
+| 5 | 模式 5 / 10 | 管理 Root 模块、Xposed 模块 |
 | — | 模式 11 | 需要重启时优先用「软重启」，避免临时 Root 失效 |
 
 ### 6.3 两种提权路径怎么选
@@ -187,7 +188,10 @@ python gui\roottool.pyw
 - **模式 2「ADB 直连提权」**：设备**正常开机 + 已开 USB 调试**时可用，
   无需进 Fastboot，最省事。但 Android 14+ 上该漏洞多已修复，**成功率较低**。
 - **模式 3「Fastboot 分区提权」**：需要设备进入 Fastboot，**成功率更高**，
-  是主推路径。分「分步执行」与「一键流程」两种；不确定时直接点一键。
+  是主推路径。新版 KernelSU 只需执行到 **[3] 继续启动系统**，随后在
+  **KernelSU 管理器点「越狱」**即可；不确定时可直接点「★ 一键完整流程」。
+  仅在**旧版 KernelSU**（管理器无「越狱」按钮）时，才需继续展开下方「旧版流程」
+  手动推送 `ksud` 并执行 `service call`。
 
 > 无论走哪条，成功后请打开手机上的 **KernelSU 管理器**确认为「已激活」。
 
