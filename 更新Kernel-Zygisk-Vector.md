@@ -1,4 +1,4 @@
-# 🔐 红米 K70 Pro · 更新 Kernel / Zygisk / Vector
+# 红米 K70 Pro · 更新 KernelSU 组件 / Zygisk / Vector
 
 > **免解锁 · 临时 Root(KernelSU `ksud` · `late-load`)环境下的更新维护指南**
 
@@ -7,11 +7,16 @@
 | 📱 设备 | 红米 K70 Pro(`manet`) |
 | 🤖 系统 | HyperOS 3 · Android 16 |
 | ⚙️ Root 方案 | KernelSU(免解锁 · 临时 · 重启即失效) |
-| 📌 本文定位 | 在 [`README.md`](./README.md) 部署基础上 → **更新内核与模块** → 重新**越狱** |
+| 📌 本文定位 | 在 [`README.md`](./README.md) 部署基础上 → **更新 KernelSU 组件与模块** → 重新**越狱** |
 
 > [!IMPORTANT]
 > **前置条件**：已按仓库 [`README.md`](./README.md) 完成「免解锁临时 root」初始部署(adb 环境、`ksud` 注入流程均可用)。
 > 本文为**更新维护流程**，不复述初始搭建步骤。
+
+> [!TIP]
+> **不想敲命令？** 仓库 [`code/`](./code/README.md) 提供了图形化工具，本流程中的
+> 提权(模式 3)、Xposed 模块管理(模式 10)、Zygisk 修复(模式 6)等均有对应的一键入口。
+> 可先用 GUI 完成，本文作为原理与纯命令行参考。详见 [图形工具指引](#图形工具对照)。
 
 ---
 
@@ -23,8 +28,10 @@
 - [🔓 阶段 B · 越狱(步骤 ③–④)](#-阶段-b--越狱步骤---)
 - [🧬 阶段 C · 模块(步骤 ⑤–⑨)](#-阶段-c--模块步骤---)
 - [✅ 阶段 D · 验证(步骤 ⑩)](#-阶段-d--验证步骤-)
+- [🖥️ 图形工具对照](#图形工具对照)
 - [📜 完整命令流](#-完整命令流)
 - [🆘 常见问题 / 排查](#-常见问题--排查)
+- [↩️ 出错恢复 / 回退](#️-出错恢复--回退)
 - [⚠️ 风险与免责声明](#️-风险与免责声明)
 - [🔗 相关资源](#-相关资源)
 
@@ -58,7 +65,7 @@
 
 | 术语 | 含义 |
 |--|--|
-| **更新 Kernel** | 本方案**免解 BL、不能刷自定义内核**；「更新 Kernel」= **把 KernelSU 升级到新版本**：替换电脑上的 **`ksud`** 二进制(内核侧 + 用户侧守护进程) + 安装配套的新管理器 |
+| **更新 KernelSU 组件** | 本方案**免解 BL、不能刷自定义内核**，**内核本身无法也不应更新**(只能随系统 OTA)。所谓「更新 Kernel / KernelSU」实际是指：**把 KernelSU 组件升级到新版本**——替换电脑上的 **`ksud`** 二进制(用户态守护进程) + 安装配套的新管理器 |
 | **Zygisk** | 注入 zygote 进程的框架；KernelSU **没有内置**，需安装 **Zygisk-Next** 模块提供 |
 | **Vector** | [JingMatrix/Vector](https://github.com/JingMatrix/Vector)：**LSPosed 的现代复刻框架**，以 **Zygisk 模块**形式运行 |
 | **越狱** | 本方案中指**临时 Root 激活**：fastboot 宽容 + `ksud` 注入后，管理器识别到 su 环境即「越狱成功」；**仅本次开机有效** |
@@ -82,6 +89,13 @@
 | **Zygisk-Next** | Dr-TSNG/ZygiskNext · [releases](https://github.com/Dr-TSNG/ZygiskNext/releases) | `Zygisk-Next-*-*.zip`(模块) |
 | **Vector** | JingMatrix/Vector · [releases](https://github.com/JingMatrix/Vector/releases) | `Vector-*-release.zip`(框架模块) + 配套管理器 App(如有) |
 
+> [!NOTE]
+> **关于 Zygisk-Next 的授权**：该组件自 `v4-0.9.2` 起已**转为闭源分发**
+> (不再是 GPL-3.0)，仅提供编译好的 zip。介意者请自行评估是否使用。
+>
+> **关于 Vector 的命名**：`JingMatrix/Vector` 即原 **LSPosed** 的现代复刻，
+> 自 v2.0 起正式由 `LSPosed` 更名为 `Vector`，两者指同一框架。
+
 > [!TIP]
 > 备用参考：[magisk.dev/modules/vector](https://magisk.dev/modules/vector) · [Vector-SR(社区维护分支)](https://github.com/byemaxx/Vector-SR)
 
@@ -97,8 +111,16 @@
 **放置要求**
 
 - 📌 新 `ksud` 放到 **adb.exe 所在目录**(如 `D:\adb\platform-tools`)，**覆盖旧文件**；
+  - 若使用 [`code/`](./code/README.md) 图形工具，则替换 **`code/tools/ksud`** 即可，
+    GUI 会自动定位新文件，无需关心 adb 目录。
 - 📌 `ksud` 与 KernelSU 管理器必须**同一版本线**(官方 release 配套)；
 - 📌 apk / zip 传到手机备用。
+
+> [!WARNING]
+> **并非任意新版都能免解锁使用。** 本方案的 `late-load` 依赖手机内核侧的配合，
+> 新版 `ksud` 若改动了加载协议、或官方收紧了对该方式的兼容，可能**注入失败**。
+> 建议：**优先沿用已验证过的版本线**；升级前先保留一份可用的旧 `ksud` 以便回退
+> (见[出错恢复 / 回退](#️-出错恢复--回退))。升级失败时可换回旧版。
 
 ### ② 安装新版本管理器
 
@@ -212,6 +234,26 @@ adb shell su -c id     # 期望输出 uid=0(root)
 
 ---
 
+## 🖥️ 图形工具对照
+
+仓库 [`code/`](./code/README.md) 下的图形工具已把本流程多数步骤做成**点击操作**，
+无需手敲命令。对照关系如下：
+
+| 本文步骤 | GUI 对应 | 说明 |
+|--|--|--|
+| ③④ 越狱(推送 `ksud` + 注入) | **模式 3** Fastboot 分区提权 → 一键流程 | 自动完成"进 Fastboot → 宽容 → 推送 → 注入" |
+| ① 更新 `ksud` | 替换 `code/tools/ksud` 后重新运行 | GUI 会自动定位新文件 |
+| ⑥⑨ 软重启 | **模式 11** 重启控制 →「软重启」 | ⚠️ 不要点「完整重启」 |
+| ⑦⑩ Zygisk / Vector 状态 | **模式 6** Zygisk 崩溃修复 | 含状态检查与修复向导 |
+| ⑧⑩ Xposed 模块管理 | **模式 10** Xposed 模块管理 | 查询 / 禁用 / 启用 |
+| 全流程排障 | **模式 9** 查看运行日志 | 含底层命令输出 |
+
+> 📌 **`fix_lspd.sh` 的位置**：脚本本体在 [`code/tools/fix_lspd.sh`](./code/tools/fix_lspd.sh)，
+> 用于 Zygisk / LSPosed 注入异常时的重新注入修复。手工用法见
+> [code/scripts/readme.txt](./code/scripts/readme.txt) 第四节。
+
+---
+
 ## 📜 完整命令流
 
 ```sh
@@ -240,9 +282,30 @@ adb shell su -c id     # uid=0(root)
 | Zygisk 状态非「运行中」 | 确认 Zygisk-Next 已启用 → 软重启；无效则卸载重刷 |
 | 模块列表不出现 Vector | **先装 Zygisk 且运行中**，再刷 Vector；刷后**软重启** |
 | 误点完整重启 | 越狱失效属正常 → 重走 ③(进 fastboot)→ ④(注入越狱) |
+| 升级新版 `ksud` 后注入失败 | 换回旧版 `ksud` 重试；详见[出错恢复 / 回退](#️-出错恢复--回退) |
 | 卡在 MIUI Logo | 电源 + 音量上 强制重启；`fastboot reboot` 回系统 |
 | 银行/支付 App 拦截 | 临时 Root 期间属预期行为 |
 | 刷了修改系统分区模块 | 可能**变砖** → 通过 fastboot 刷回官方完整固件救砖 |
+
+---
+
+## ↩️ 出错恢复 / 回退
+
+更新过程中若出现异常，按下表处理。**核心思路：临时 Root 重启即失效，
+所以"回退"成本很低——重启到干净系统后重来即可。**
+
+| 情形 | 处理 |
+|--|--|
+| 新版 `ksud` 注入失败 / 管理器仍显示「未激活」 | 换回**旧版 `ksud`**(升级前保留的那份)重新注入；旧版可用说明该版本线兼容 |
+| 新版管理器异常 / 闪退 | 卸载后装回旧版管理器 APK(管理器仅是 App，不影响系统) |
+| Zygisk 或 Vector 刷入后系统异常 | 进 **KernelSU 管理器安全模式**(开机时长按音量键)，或经 [`code/`](./code/README.md) **模式 7** 写入安全模式标记，禁用出问题的模块 |
+| 系统卡 Logo / 无法进系统 | 按住 **电源 + 音量上** 强制重启；仍不行则 `fastboot reboot`。因全程未写分区，重启后即回到官方原厂状态 |
+| 想彻底放弃临时 Root | **直接完整重启手机**即可。不修改任何系统分区，重启后临时 Root 自动失效，无需"卸载" |
+
+> [!IMPORTANT]
+> 本方案**全程不写入任何系统分区**，因此不存在"刷坏分区导致变砖"的常规刷机风险。
+> 唯一的高风险操作是**刷入会修改系统分区的 Xposed 模块**(见阶段 C 警示)，
+> 请务必避免。
 
 ---
 
@@ -258,7 +321,8 @@ adb shell su -c id     # uid=0(root)
 ## 🔗 相关资源
 
 - [KernelSU](https://github.com/tiann/KernelSU) — Root 方案内核模块(`ksud` / 管理器)
-- [Zygisk-Next](https://github.com/Dr-TSNG/ZygiskNext) — KernelSU 下的 Zygisk 实现
+- [Zygisk-Next](https://github.com/Dr-TSNG/ZygiskNext) — KernelSU 下的 Zygisk 实现(自 v4-0.9.2 起闭源分发)
 - [JingMatrix/Vector](https://github.com/JingMatrix/Vector) — LSPosed 现代复刻框架(需 Zygisk)
 - [Vector-SR](https://github.com/byemaxx/Vector-SR) — Vector 社区维护分支
 - [`README.md`](./README.md) — 免解锁临时 Root 初始部署与原理说明
+- [`code/README.md`](./code/README.md) — 图形化工具说明(含本流程的一键入口)

@@ -1,6 +1,5 @@
 ## 红米 K70 Pro — 免解锁 临时 Root(KSU)
 
-> **文档由 DeepSeek 生成**。
 本仓库内容**仅适配红米 K70 Pro**，采用**电脑免刷**(无需刷机、免解 BL)临时 root 方案。
 
 > 通过 KernelSU 的 `ksud` 经 MIUI 系统服务接口注入并加载，在**本次开机**内获得 root 权限：
@@ -52,6 +51,11 @@ miui.mqsas.IMQSNative service call 21
 
 - **不修改** `/boot`/`/system`/`init` → 不影响 OTA、不破坏校验、重启即还原(免解BL)。
 - 属于**漏洞利用性质**的操作，随固件版本变化，不保证在其它机型/固件上可用。
+
+> **不想敲命令？** `code/` 下提供了图形化一键工具（含免安装 exe），
+> 把上述流程做成了点击操作，并自带设备检测、模块管理、日志查看等功能。
+> 详见 [code/README.md](code/README.md)。本文件则是**纯命令行的完整原理与操作说明**，
+> 两者等价，可按需选用。
 
 ---
 
@@ -254,8 +258,8 @@ fastboot reboot
 ## 相关资源
 
 - [KernelSU](https://github.com/tiann/KernelSU) — 本方案使用的 Root 方案内核模块管理工具
-- [Android Platform-Tools](https://developer.android.com/studio/releases/platform-tools) — adb / fastboot
-- [mi_nobl_root(免解BL的 ksu+lsp 方案)](https://github.com/mrdong916/mi_nobl_root) — 同原理的完整方案(含 Python 补丁脚本)
+- [Android Platform-Tools](https://developer.android.com/tools/releases/platform-tools) — adb / fastboot
+- [mi_nobl_root(免解BL的 ksu+lsp 方案)](https://github.com/xunchahaha/mi_nobl_root) — 同 mqsas 漏洞原理、面向小米 15 的 LKM 内核模块(insmod)运行时加载方案，含 Python 补丁脚本
 - [酷安数码玩机QvQ](https://www.coolapk.com/feed/70681212) — 小米/红米 免电脑 免bl 临时root（ksu）注：后面有电脑免刷root
 
 ---

@@ -1,0 +1,19 @@
+# 统一换行符，避免 Windows 下 autocrlf 破坏脚本与二进制
+* text=auto
+
+# Shell 脚本必须保持 LF（会被推到 Android 执行，CRLF 会导致 sh 报错）
+*.sh text eol=lf
+# Windows 批处理保持 CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二进制文件不做换行转换
+*.exe binary
+*.dll binary
+*.apk binary
+*.zip binary
+*.png binary
+*.ico binary
+
+# 无扩展名的 ELF 二进制（ksud 等）
+ksud binary
