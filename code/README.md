@@ -79,10 +79,35 @@ python gui\roottool.pyw
 python -m PyInstaller --noconfirm --clean packaging\RootTool.spec
 ```
 
-产出 `dist/RootTool.exe`（约 19 MB，单文件）。
+产出 `code/dist/RootTool.exe`（约 19 MB，单文件）。
+
+> 该 exe 为构建产物，**不纳入仓库**（避免二进制使仓库膨胀）。正式发布包由
+> [GitHub Actions](../.github/workflows/build.yml) 在打 tag 时自动构建并上传到 Releases。
 
 > 运行时二进制由 PyInstaller 解包到临时目录并自动定位，**无需**在旁边放 `tools/`；
 > 日志仍写入 exe 同级的 `logs/` 目录，便于长期查看。
+
+**目标电脑需要准备什么？**
+
+| 依赖 | 是否需预装 | 说明 |
+|------|-----------|------|
+| Python 解释器 | 否 | 已内嵌进 exe（含标准库与 tkinter） |
+| adb / fastboot / ksud | 否 | 已内嵌，运行时自动解包定位 |
+| AdbWinApi.dll 等 adb 依赖 | 否 | 已内嵌，随 adb 一并解包 |
+| **小米 / 红米 USB 驱动** | **是** | 系统级驱动，无法打进 exe |
+
+也就是说，把 `RootTool.exe` 拷贝到**任意未安装 Python、未装 adb 的 Windows 电脑**，
+双击即可打开界面并按第四节「等待启动完成」后续流程操作。
+唯一需要用户自行安装的是**设备对应的 USB 驱动**：
+
+- 设备在 `adb devices` 中不出现 → 缺 ADB 驱动；
+- 设备在 `fastboot devices` 中不出现 → 缺 Fastboot 驱动。
+
+可使用小米官方驱动，或通用的 Google USB Driver（`android_winusb.inf`）。
+
+> 提示：exe 为单文件模式，首次运行会自解压到临时目录，启动会略慢（秒级），属正常现象；
+> 日志写在 exe 同级的 `logs/`，故请勿把 exe 放在只读目录（如受保护的
+> `C:\Program Files`）下运行。
 
 ---
 
@@ -224,9 +249,9 @@ python gui\roottool.pyw
 
 ---
 
-## 七、与 bat 版的关系
+## 七、设计要点
 
-原始的 `Root_Tool.bat` 作为命令行备份方案保留。GUI 版修复了 bat 版的历史问题：
+GUI 版针对早期 bat 脚本方案的常见问题做了系统性修复：
 
 - **工作目录漂移**：启动时强制把工作目录固定到工具根目录，
   解决「双击能找到 adb、管理员运行找不到 adb」的问题。

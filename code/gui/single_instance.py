@@ -52,7 +52,12 @@ def acquire_mutex():
     kernel32.CreateMutexW.restype = wintypes.HANDLE
     handle = kernel32.CreateMutexW(None, False, MUTEX_NAME)
     if not handle:
-        # 创建失败时保守放行，避免因权限等问题误挡用户。
+        # Global\ 互斥体在受限会话下可能创建失败（如缺少 SeCreateGlobalPrivilege）。
+        # 若直接放行，会导致本机出现多个实例。此时退化为进程内全局命名互斥体
+        # （不带 Global\ 前缀，仅本会话可见），仍然能挡住同一用户会话内的重复启动。
+        handle = kernel32.CreateMutexW(None, False, MUTEX_NAME.replace('Global\\', ''))
+    if not handle:
+        # 连会话内互斥体都无法创建，才保守放行，避免误挡用户。
         return True
     _mutex_handle = handle
     return kernel32.GetLastError() != ERROR_ALREADY_EXISTS
@@ -77,12 +82,20 @@ def find_windows(title):
     GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, wintypes.INT]
     GetWindowTextW.restype = wintypes.INT
 
+    IsWindowVisible = user32.IsWindowVisible
+    IsWindowVisible.argtypes = [wintypes.HWND]
+    IsWindowVisible.restype = wintypes.BOOL
+
+    GetWindowTextLengthW = user32.GetWindowTextLengthW
+    GetWindowTextLengthW.argtypes = [wintypes.HWND]
+    GetWindowTextLengthW.restype = wintypes.INT
+
     found = []
 
     def _enum_proc(hwnd, _lparam):
-        if not user32.IsWindowVisible(hwnd):
+        if not IsWindowVisible(hwnd):
             return True
-        length = user32.GetWindowTextLengthW(hwnd)
+        length = GetWindowTextLengthW(hwnd)
         if length <= 0:
             return True
         buf = create_unicode_buffer(length + 1)
@@ -92,7 +105,10 @@ def find_windows(title):
         return True
 
     WNDENUMPROC = WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
-    user32.EnumWindows(WNDENUMPROC(_enum_proc), 0)
+    EnumWindows = user32.EnumWindows
+    EnumWindows.argtypes = [WNDENUMPROC, wintypes.LPARAM]
+    EnumWindows.restype = wintypes.BOOL
+    EnumWindows(WNDENUMPROC(_enum_proc), 0)
     return found
 
 
@@ -105,9 +121,21 @@ def close_windows(handles, wait=3.0):
     if user32 is None or not handles:
         return 0
 
+    from ctypes import wintypes
+
+    # 64 位下句柄是 8 字节，未声明 argtypes 会被截断成 32 位，导致消息发错窗口。
+    PostMessageW = user32.PostMessageW
+    PostMessageW.argtypes = [wintypes.HWND, wintypes.UINT,
+                             wintypes.WPARAM, wintypes.LPARAM]
+    PostMessageW.restype = wintypes.BOOL
+
+    IsWindow = user32.IsWindow
+    IsWindow.argtypes = [wintypes.HWND]
+    IsWindow.restype = wintypes.BOOL
+
     for hwnd in handles:
         try:
-            user32.PostMessageW(hwnd, WM_CLOSE, 0, 0)
+            PostMessageW(hwnd, WM_CLOSE, 0, 0)
         except Exception:
             pass
 
@@ -115,7 +143,7 @@ def close_windows(handles, wait=3.0):
     alive = list(handles)
     while time.time() < deadline and alive:
         time.sleep(0.2)
-        alive = [h for h in alive if user32.IsWindow(h)]
+        alive = [h for h in alive if IsWindow(h)]
 
     # 仍未退出的，直接结束其进程（等价于任务管理器结束任务）
     for hwnd in alive:
@@ -128,13 +156,17 @@ def close_windows(handles, wait=3.0):
 
     # 再等一小会确认
     time.sleep(0.5)
-    return sum(1 for h in handles if not user32.IsWindow(h))
+    return sum(1 for h in handles if not IsWindow(h))
 
 
 def _window_pid(user32, hwnd):
+    import ctypes
     from ctypes import wintypes, byref
+    GetWindowThreadProcessId = user32.GetWindowThreadProcessId
+    GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    GetWindowThreadProcessId.restype = wintypes.DWORD
     pid = wintypes.DWORD()
-    user32.GetWindowThreadProcessId(hwnd, byref(pid))
+    GetWindowThreadProcessId(hwnd, byref(pid))
     return pid.value
 
 

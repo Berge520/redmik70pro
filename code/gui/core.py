@@ -62,7 +62,7 @@ _TOOL_DIRS = (ROOT_DIR, os.path.join(ROOT_DIR, 'tools'))
 
 # 应用的显示名称 / 版本，集中定义避免各处漂移。
 APP_NAME = '小米/红米 临时Root 专业工具'
-APP_VERSION = 'v0.1'
+APP_VERSION = 'v0.0.1'
 APP_TITLE = '%s %s' % (APP_NAME, APP_VERSION)
 
 # 隐藏子进程黑窗（Windows）
@@ -203,6 +203,11 @@ class Runner:
         # 当前正在运行的子进程；取消时由 run() 内部 kill。
         self._proc = None
         self._proc_lock = threading.Lock()
+        # 串行化 run()：run 内部用单一 self._proc 槽位记录当前子进程，
+        # 若两个命令并发执行，后启动的会覆盖前者的槽位，导致前者被
+        # cancel_current() 误杀并打印「命令已取消」。加锁后同一时刻只有
+        # 一条命令在跑，从根本上消除这类误报（adb/fastboot 本身也不宜并发）。
+        self._run_lock = threading.Lock()
         # 全局取消判据：由上层（如 UI 的任务层）设置一个无参回调，
         # 返回 True 表示请求取消。run() 在每个命令执行期间轮询它，
         # 因此无需每个调用点都显式传 cancel_check。
@@ -231,10 +236,18 @@ class Runner:
 
     def run(self, args, timeout=60, quiet=False, check_cwd=True,
             cancel_check=None):
-        """执行命令。
+        """执行命令（进程级串行，见 _run_lock）。"""
+        # 整个执行过程持锁，保证同一时刻只有一条命令在跑，
+        # 避免并发命令互相覆盖 self._proc 造成误杀/误报取消。
+        with self._run_lock:
+            return self._run_once(args, timeout, quiet, cancel_check)
+
+    def _run_once(self, args, timeout, quiet, cancel_check):
+        """run() 的实际实现，需在 _run_lock 保护下调用。
 
         args: 列表形式的命令，如 ['adb', 'devices']
-        quiet: 不向 emit 输出原始行（仅记日志）
+        quiet: 不向 emit 输出原始行，且不把命令行/取消/超时写入日志
+               （轮询类命令用 quiet=True，避免日志被刷屏）
         cancel_check: 无参回调，返回 True 表示请求取消，子进程将被终止
         """
         if isinstance(args, str):
@@ -249,7 +262,9 @@ class Runner:
             return CmdResult(127, [msg])
 
         argv = [exe] + list(args[1:])
-        self._log('执行: ' + ' '.join(argv))
+        # quiet 命令多为设备轮询，写日志只会刷屏，故只在非 quiet 时记录。
+        if not quiet:
+            self._log('执行: ' + ' '.join(argv))
 
         try:
             proc = subprocess.Popen(argv, **_popen_kwargs())
@@ -303,11 +318,13 @@ class Runner:
         if cancelled:
             msg = '[已取消] 命令已被用户中断。'
             lines.append(msg)
-            self._log('命令已取消: %s' % ' '.join(argv))
+            if not quiet:
+                self._log('命令已取消: %s' % ' '.join(argv))
         elif timed_out:
             msg = '[超时] 命令执行超过 %d 秒已终止。' % timeout
             lines.append(msg)
-            self._log('命令超时: %s' % ' '.join(argv))
+            if not quiet:
+                self._log('命令超时: %s' % ' '.join(argv))
 
         return CmdResult(proc.returncode, lines)
 
@@ -361,6 +378,13 @@ def find_ksud():
         if os.path.isfile(path):
             return path
     return None
+
+
+# MIUI mqsas 服务漏洞的提权命令（供模式 2 / 模式 6 共用）。
+# 放在 core 中以免 UI 模块之间互相 import 造成耦合。
+EXPLOIT_CMD = ('service call miui.mqsas.IMQSNative 21 i32 1 '
+               's16 /data/local/tmp/ksud i32 1 s16 late-load '
+               's16 /sdcard/ksulog.txt i32 60')
 
 
 def is_root(runner):
@@ -417,20 +441,26 @@ def get_sdk(runner):
 
 
 def list_modules(runner):
-    """返回已安装模块的目录名列表。"""
+    """返回已安装模块的目录名列表。
+
+    仅保留通过白名单校验的目录名——这些名字随后会被拼入 su 命令，
+    若放任 `ls` 输出直接透传，恶意模块可借助特殊目录名实现命令注入。
+    """
     res = runner.su('ls /data/adb/modules/', quiet=True, timeout=20)
     if not res.ok:
         return []
     out = []
     for line in res.lines:
         name = line.strip()
-        if name:
+        if name and valid_module_name(name):
             out.append(name)
     return out
 
 
 def read_module_name(runner, folder):
     """读取模块的显示名（module.prop 中的 name）。"""
+    if not valid_module_name(folder):
+        return ''
     res = runner.su('cat /data/adb/modules/%s/module.prop' % folder,
                     quiet=True, timeout=15)
     for line in res.lines:
@@ -446,6 +476,8 @@ def module_state(runner, folder):
       /data/adb/modules/<模块>/disable  —— 存在则被禁用（重启后不加载，文件保留）
       /data/adb/modules/<模块>/remove   —— 存在则标记为待删除（重启后由管理器清理）
     """
+    if not valid_module_name(folder):
+        return 'enabled'
     base = '/data/adb/modules/%s' % folder
     if runner.su('test -f %s/remove' % base, quiet=True, timeout=15).ok:
         return 'removed'
@@ -475,6 +507,18 @@ def valid_module_name(name):
     if not name or '..' in name:
         return False
     return bool(_MODULE_RE.match(name))
+
+
+# Xposed 模块标识：包名（含点）或模块目录名，允许字母/数字/下划线/连字符/点，
+# 但不能以点开头或结尾，且不含连续的 ".."（避免路径穿越）。
+# 该值会被拼入 root 命令，故必须严格白名单，杜绝 shell 元字符注入。
+_XP_ID_RE = re.compile(r'^[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+)*$')
+
+
+def valid_xposed_id(name):
+    if not name:
+        return False
+    return bool(_XP_ID_RE.match(name))
 
 
 # ---------------------------------------------------------------
@@ -663,3 +707,23 @@ class Task:
 
     def cancel(self):
         self.cancelled = True
+
+
+def sleep_cancellable(ctl, seconds, step=0.2):
+    """可中断的等待：按 step 轮询多次，一旦 ctl.cancelled 就立即返回。
+
+    返回 True 表示等待被取消提前结束，False 表示完整睡满 seconds。
+    ctl 为 None 或无 cancelled 属性时退化为 time.sleep。
+    供各模式模块共享，避免在 UI 模块之间互相 import。
+    """
+    if ctl is None or not hasattr(ctl, 'cancelled'):
+        time.sleep(seconds)
+        return False
+    remain = float(seconds)
+    while remain > 0:
+        if ctl.cancelled:
+            return True
+        chunk = step if remain > step else remain
+        time.sleep(chunk)
+        remain -= chunk
+    return ctl.cancelled

@@ -8,9 +8,9 @@ from tkinter import ttk, messagebox, simpledialog
 import core
 import main as ui
 
-EXPLOIT_CMD = ('service call miui.mqsas.IMQSNative 21 i32 1 '
-               's16 /data/local/tmp/ksud i32 1 s16 late-load '
-               's16 /sdcard/ksulog.txt i32 60')
+_sleep_cancellable = core.sleep_cancellable
+# 提权命令统一放在 core 中（模式 2 与模式 6 共用，避免跨 UI 模块 import）。
+EXPLOIT_CMD = core.EXPLOIT_CMD
 
 
 class AdbFrame(tk.Frame):
@@ -87,10 +87,15 @@ class AdbFrame(tk.Frame):
 
     # -----------------------------------------------------------
     def _require(self):
-        if not ui.require_adb(self.app):
-            return False
+        # 只做轻量的界面级检查，不在此发起 adb get-state：
+        # 该命令最长会阻塞 15 秒，在主线程执行会冻结整个窗口。
+        # 真正的设备就绪判定放到后台任务里（_ensure_device）。
+        return ui.require_adb(self.app)
+
+    def _ensure_device(self, ctl):
+        """后台线程内确认 ADB 设备就绪，避免主线程同步阻塞。"""
         if not self.app.runner.run(['adb', 'get-state'], quiet=True, timeout=15).ok:
-            messagebox.showerror('设备异常', 'ADB 设备未就绪，请重新连接或重新授权调试。')
+            self.app.log_out('[错误] ADB 设备未就绪，请重新连接或重新授权调试。')
             return False
         return True
 
@@ -104,6 +109,9 @@ class AdbFrame(tk.Frame):
         app = self.app
         r = app.runner
 
+        if not self._ensure_device(ctl):
+            return False
+
         app.log_out('========== ADB 直连漏洞提权 ==========')
 
         if not self._push(app):
@@ -116,7 +124,7 @@ class AdbFrame(tk.Frame):
             return False
 
         app.log_out('[提示] 命令已发送，等待 3 秒让内核加载模块...')
-        time.sleep(3)
+        _sleep_cancellable(ctl, 3)
 
         app.log_out('[步骤4] 验证 Root 状态...')
         if core.is_root(r):
@@ -155,8 +163,10 @@ class AdbFrame(tk.Frame):
         if not self._require():
             return
 
-        def job(_ctl):
+        def job(ctl):
             app = self.app
+            if not self._ensure_device(ctl):
+                return False
             app.log_out('========== 仅推送 ksud ==========')
             ok = self._push(app)
             if ok:
@@ -188,8 +198,10 @@ class AdbFrame(tk.Frame):
             self.app.log_out('[已取消] 用户放弃了自定义命令执行。')
             return
 
-        def job(_ctl):
+        def job(ctl):
             app = self.app
+            if not self._ensure_device(ctl):
+                return None
             app.log_out('---------- 自定义命令：%s ----------' % cmd)
             res = app.runner.shell(cmd, timeout=120)
             app.log_out('---------- 执行结束（返回码 %d）----------' % res.code)

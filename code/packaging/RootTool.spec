@@ -30,6 +30,9 @@ datas = [
     (os.path.join(ROOT, 'tools', name), 'tools')
     for name in _TOOL_FILES
 ]
+# 运行时要读取的图标：icon= 只把图标嵌到 exe 资源（外壳图标 / 任务栏），
+# 不会让程序内的 branding.icon_path() 读到它，必须一并纳入 datas。
+datas.append((os.path.join(SPECPATH, 'brand.ico'), '.'))
 
 
 a = Analysis(

@@ -24,11 +24,18 @@ KNOWN_FRAMEWORKS = {
 }
 
 
+def _sleep_cancellable(ctl, seconds, step=0.2):
+    """可中断等待，统一由 core 提供实现（见 core.sleep_cancellable）。"""
+    return core.sleep_cancellable(ctl, seconds, step)
+
+
 def _framework_label(folder):
     """若该模块属于已知框架本体，返回其标签，否则返回 None。"""
     low = folder.lower()
+    # 精确匹配或"<key>_" / "<key>-" 前缀（如 zygisk_vector_xxx），
+    # 不能只用 startswith(key)——'vectorized' 之类也会被误判为框架本体。
     for key, label in KNOWN_FRAMEWORKS.items():
-        if low == key or low.startswith(key):
+        if low == key or low.startswith(key + '_') or low.startswith(key + '-'):
             return label
     return None
 
@@ -236,7 +243,9 @@ class ZygiskFrame(tk.Frame):
             app.log_out('[成功] post-fs-data 已执行。')
         else:
             app.log_out('[警告] %s' % msg)
-        time.sleep(2)
+        if _sleep_cancellable(ctl, 2):
+            app.log_out('[已取消] 激活流程被用户中断。')
+            return None
         if core.zygisk_daemon_running(r):
             app.log_out('[成功] zn-daemon 已在运行。')
         else:
@@ -248,7 +257,9 @@ class ZygiskFrame(tk.Frame):
             app.log_out('[成功] 64 位 zygote 已重启。')
         else:
             app.log_out('[警告] 64 位 zygote 重启命令未成功返回。')
-        time.sleep(5)
+        if _sleep_cancellable(ctl, 5):
+            app.log_out('[已取消] 激活流程被用户中断。')
+            return None
 
         # 步骤 3：重启 32 位 zygote（小米 tango 转译层）
         app.log_out('[步骤3] 重启 32 位 zygote(zygote_mi_secondary)...')
@@ -257,7 +268,9 @@ class ZygiskFrame(tk.Frame):
         else:
             app.log_out('[警告] 32 位 zygote 重启命令未成功返回。')
         app.log_out('[提示] 请等待系统界面恢复(约 10~30 秒)后再检测结果。')
-        time.sleep(8)
+        if _sleep_cancellable(ctl, 8):
+            app.log_out('[已取消] 激活流程被用户中断。')
+            return None
 
         # 汇总
         app.log_out('[步骤4] 复查状态...')
@@ -345,7 +358,7 @@ class ZygiskFrame(tk.Frame):
                           busy_text='正在提权并扫描...', done_text='一键处理完成')
 
     def _work_auto(self, ctl):
-        from mode_adb import EXPLOIT_CMD
+        exploit_cmd = core.EXPLOIT_CMD
         app = self.app
         r = app.runner
 
@@ -366,8 +379,10 @@ class ZygiskFrame(tk.Frame):
             r.shell('chmod 777 /data/local/tmp/ksud', quiet=True, timeout=20)
 
             app.log_out('[步骤2] 执行漏洞提权...')
-            r.run(['adb', 'shell', EXPLOIT_CMD], quiet=True, timeout=40)
-            time.sleep(3)
+            r.run(['adb', 'shell', exploit_cmd], quiet=True, timeout=40)
+            if _sleep_cancellable(ctl, 3):
+                app.log_out('[已取消] 一键修复被用户中断。')
+                return None
             if core.is_root(r):
                 app.log_out('[成功] 已获取 Root。')
             else:

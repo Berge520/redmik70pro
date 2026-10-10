@@ -1,0 +1,75 @@
+name: Build RootTool.exe
+
+on:
+  # 手动触发：Actions 页面点「Run workflow」即可打包
+  workflow_dispatch:
+  # 打 v* 标签时构建并发布 Release（如 v0.0.1）
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # 打 tag 时创建 Release 需要写权限
+
+# 同一 tag / 分支的重复触发只保留最新一次，避免并发构建相互覆盖
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: 安装 PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: 编译自检（打包前确保所有源码可编译）
+        working-directory: code
+        run: python -m compileall -q gui
+
+      - name: 打包 exe
+        working-directory: code
+        run: python -m PyInstaller --noconfirm --clean packaging\RootTool.spec
+
+      - name: 校验产物存在
+        working-directory: code
+        run: |
+          if (!(Test-Path dist\RootTool.exe)) {
+            Write-Error "打包失败：未生成 dist\RootTool.exe"
+            exit 1
+          }
+          Get-Item dist\RootTool.exe | Select-Object Name, Length
+
+      - name: 上传构建产物（artifact）
+        uses: actions/upload-artifact@v4
+        with:
+          name: RootTool-exe
+          path: code/dist/RootTool.exe
+          if-no-files-found: error
+
+      - name: 发布 Release（仅 tag 触发时）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: code/dist/RootTool.exe
+          generate_release_notes: true
+          body: |
+            ## 下载
+
+            - **`RootTool.exe`**（新方案 · 图形工具，推荐）：本页下方 Assets 处下载，双击即用。
+            - **`附件.zip`**（旧方案 · 命令行所需载荷）：附件为固定的第三方组件快照，
+              **仅随首个版本（`v0.0.1`）发布一次**，请到
+              [`v0.0.1` Release](https://github.com/Berge520/redmik70pro/releases/tag/v0.0.1)
+              的 Assets 处下载；含本方案专用 `ksud`、KernelSU 管理器 APK、Zygisk-Next、
+              Xposed 框架（Vector）、热重启模块、`fix_lspd.sh`。
+
+            > 旧方案为可选的历史用法；日常使用请优先选择图形工具 `RootTool.exe`。

@@ -32,7 +32,7 @@ class LogFrame(tk.Frame):
         bar.pack(fill='x')
         ui.button(bar, '查看本次日志', self.load_current, accent=True)
         ui.button(bar, '刷新列表', self.refresh)
-        ui.button(bar, '打开日志目录', lambda: os.startfile(core.LOG_DIR))
+        ui.button(bar, '打开日志目录', self.open_dir)
         ui.button(bar, '清理 %d 天前日志' % KEEP_DAYS, self.cleanup)
         ui.button(bar, '清除全部日志', self.clear_all)
 
@@ -122,6 +122,18 @@ class LogFrame(tk.Frame):
         else:
             self._set_text('本次会话暂无日志文件。')
 
+    def open_dir(self):
+        """用系统文件管理器打开日志目录（非 Windows 平台仅给出路径提示）。"""
+        if os.name != 'nt':
+            self.app.log_out('[提示] 当前系统不支持自动打开目录，路径：%s'
+                             % core.LOG_DIR)
+            return
+        try:
+            os.startfile(core.LOG_DIR)
+            self.app.log_out('[日志] 已打开日志目录：%s' % core.LOG_DIR)
+        except OSError as exc:
+            self.app.log_out('[错误] 无法打开日志目录：%s' % exc)
+
     # -----------------------------------------------------------
     def cleanup(self):
         if not messagebox.askyesno(
@@ -131,9 +143,14 @@ class LogFrame(tk.Frame):
 
         import time
         cutoff = time.time() - KEEP_DAYS * 86400
+        # 当前会话日志正被写入（Windows 下也删除不掉），需排除，避免报错与误删。
+        cur = self.app.logger.path if hasattr(self.app, 'logger') else None
+        cur_abspath = os.path.abspath(cur) if cur else ''
         removed = 0
         for path in self._files:
             try:
+                if os.path.abspath(path) == cur_abspath:
+                    continue
                 if os.path.getmtime(path) < cutoff:
                     os.remove(path)
                     removed += 1

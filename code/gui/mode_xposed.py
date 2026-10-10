@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 """模式10：Xposed 模块管理（Vector / LSPosed / 原始 Xposed）"""
 
+import shlex
 import tkinter as tk
 from tkinter import ttk, messagebox, simpledialog
 
@@ -169,7 +170,15 @@ class XposedFrame(tk.Frame):
                     line = line.strip()
                     if not line or line.lower().startswith(('module', '---')):
                         continue
-                    rows.append((line, ''))
+                    # CLI 输出可能是多列（标识 + 状态/描述），整行校验会把
+                    # 带空格的正常输出误判为非法而全部丢弃。故只取首列（标识）
+                    # 做白名单校验，其余列仅作展示。
+                    token = line.split()[0]
+                    if not core.valid_xposed_id(token):
+                        app.log_out('（忽略不合法标识：%s）' % line)
+                        continue
+                    rest = line[len(token):].strip()
+                    rows.append((token, rest))
                     app.log_out('  %s' % line)
                 if not rows:
                     app.log_out('（CLI 未返回模块，或输出格式与预期不同）')
@@ -177,9 +186,15 @@ class XposedFrame(tk.Frame):
                 res = r.su('cat ' + ORIG_LIST, quiet=True, timeout=20)
                 for line in res.lines:
                     line = line.strip()
-                    if line:
-                        rows.append((line, '启用'))
-                        app.log_out('  [启用] %s' % line)
+                    if not line:
+                        continue
+                    # modules.list 每行一个标识，同样只取首列校验。
+                    token = line.split()[0]
+                    if not core.valid_xposed_id(token):
+                        app.log_out('（忽略不合法标识：%s）' % line)
+                        continue
+                    rows.append((token, '启用'))
+                    app.log_out('  [启用] %s' % token)
                 if not rows:
                     app.log_out('（模块列表为空或文件不存在）')
             return rows
@@ -224,16 +239,37 @@ class XposedFrame(tk.Frame):
         if not pkg or not pkg.strip():
             return
         pkg = pkg.strip()
-        if not core.valid_module_name(pkg.replace('.', '_')) and not pkg:
-            messagebox.showerror('非法输入', '模块标识不能为空。')
+        # 该标识会被拼入 root 命令执行，必须严格白名单校验，杜绝命令注入。
+        if not core.valid_xposed_id(pkg):
+            messagebox.showerror(
+                '非法输入',
+                '模块标识 [%s] 不合法。\n\n'
+                '只允许字母、数字、下划线、连字符和点（如 '
+                'com.example.module），不能包含空格或 shell 特殊字符。' % pkg)
+            self.app.log_out('[拒绝操作] 模块标识不合法：%s' % pkg)
             return
-        if not messagebox.askyesno('选择操作', '要对 [%s] 执行什么操作？\n\n是=禁用，否=启用' % pkg):
-            self._operate(pkg, enable=True)
-        else:
-            self._operate(pkg, enable=False)
+        # 用三态弹窗明确表达意图：是=禁用、否=启用、取消=放弃。
+        # 原 askyesno 的"是=禁用"与直觉相反，极易误操作。
+        choice = messagebox.askyesnocancel(
+            '选择操作',
+            '要对 [%s] 执行什么操作？\n\n'
+            '· 是 —— 禁用该模块\n'
+            '· 否 —— 启用该模块\n'
+            '· 取消 —— 放弃本次操作' % pkg)
+        if choice is None:
+            self.app.log_out('[已取消] 未对 %s 执行任何操作。' % pkg)
+            return
+        self._operate(pkg, enable=not choice)
 
     def _operate(self, mod, enable):
         action = '启用' if enable else '禁用'
+        # 兜底防线：mod 会被拼入以 root 执行的 shell 命令，任何调用路径
+        # 都必须先过白名单，避免注入（例如从 CLI 输出回填的值被污染）。
+        if not core.valid_xposed_id(mod):
+            messagebox.showerror('非法模块标识',
+                                 '模块标识 [%s] 不合法，已拒绝执行。' % mod)
+            self.app.log_out('[拒绝操作] 模块标识不合法：%s' % mod)
+            return
         if not messagebox.askyesno(
                 '确认%s' % action,
                 '即将%s模块：\n\n  %s\n\n操作重启手机后生效，是否继续？' % (action, mod)):
@@ -255,13 +291,16 @@ class XposedFrame(tk.Frame):
                 return False
 
             # 原始 Xposed：通过 modules.list / disabled 文件管理
+            # 注意：模块标识含 '.'（如 com.example），用 grep 正则会被当作
+            # 通配符匹配到不该匹配的行，故一律用 -F 按固定字符串、-x 整行匹配。
             if enable:
-                check = r.su('grep -q "^%s$" %s' % (mod, ORIG_LIST),
+                check = r.su('grep -qxF %s %s' % (shlex.quote(mod), shlex.quote(ORIG_LIST)),
                              quiet=True, timeout=20)
                 if check.ok:
                     app.log_out('[提示] 模块 %s 已在列表中，无需重复启用。' % mod)
                     return True
-                res = r.su('echo %s >> %s' % (mod, ORIG_LIST), quiet=True, timeout=20)
+                res = r.su('echo %s >> %s' % (shlex.quote(mod), shlex.quote(ORIG_LIST)),
+                           quiet=True, timeout=20)
                 if res.ok:
                     app.log_out('[成功] 模块 %s 已添加到列表，重启后生效。' % mod)
                     return True
@@ -269,12 +308,14 @@ class XposedFrame(tk.Frame):
                 return False
             else:
                 tmp = ORIG_LIST + '.tmp'
-                res = r.su('grep -v "^%s$" %s > %s' % (mod, ORIG_LIST, tmp),
-                           quiet=True, timeout=20)
+                res = r.su('grep -vxF %s %s > %s' % (
+                    shlex.quote(mod), shlex.quote(ORIG_LIST), shlex.quote(tmp)),
+                    quiet=True, timeout=20)
                 if not res.ok:
                     app.log_out('[错误] 未找到模块 %s 或 grep 不可用。' % mod)
                     return False
-                res = r.su('mv %s %s' % (tmp, ORIG_LIST), quiet=True, timeout=20)
+                res = r.su('mv %s %s' % (shlex.quote(tmp), shlex.quote(ORIG_LIST)),
+                           quiet=True, timeout=20)
                 if res.ok:
                     app.log_out('[成功] 模块 %s 已从列表移除，重启后生效。' % mod)
                     return True

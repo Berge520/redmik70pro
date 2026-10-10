@@ -7,9 +7,12 @@ from tkinter import ttk, messagebox
 import core
 import main as ui
 
-# KernelSU 常见安全模式标记路径（按优先级尝试）
+# KernelSU 常见安全模式标记路径（按优先级尝试）。
+# 第一项是官方/主流版本使用的路径；其余为部分旧版或分支的路径，
+# 这些非官方路径能否被识别取决于具体 KernelSU 版本，写入成功也不代表一定生效。
+OFFICIAL_MARKER = '/data/adb/ksu/safe_mode'
 SAFE_MARKERS = [
-    '/data/adb/ksu/safe_mode',
+    OFFICIAL_MARKER,
     '/data/adb/ksu_safe_mode',
     '/data/adb/modules/safe_mode',
 ]
@@ -134,9 +137,14 @@ class SafeModeFrame(tk.Frame):
                 r.su('mkdir -p ' + folder, quiet=True, timeout=20)
                 r.su('touch ' + path, quiet=True, timeout=20)
                 if r.shell('test -f ' + path, quiet=True, timeout=15).ok:
-                    app.log_out('[成功] 安全模式标记已写入：%s' % path)
-                    app.log_out('请重启手机，重启后问题模块将不会加载。')
-                    app.log_out('重启后到模式 5 卸载问题模块，再回来点击「退出安全模式」。')
+                    if path == OFFICIAL_MARKER:
+                        app.log_out('[成功] 安全模式标记已写入：%s' % path)
+                        app.log_out('请重启手机，重启后问题模块将不会加载。')
+                        app.log_out('重启后到模式 5 卸载问题模块，再回来点击「退出安全模式」。')
+                    else:
+                        app.log_out('[警告] 仅写入了非官方路径：%s' % path)
+                        app.log_out('该路径不一定被当前 KernelSU 版本识别，'
+                                    '若重启后模块仍加载，请参考下方手动指南进入安全模式。')
                     return path
             app.log_out('[失败] 全部路径写入均失败，请参考下方手动指南。')
             return None
@@ -145,11 +153,17 @@ class SafeModeFrame(tk.Frame):
             if not ui.widget_alive(self.lbl_marker):
                 return
             self.check_marker()
-            if path:
+            if path == OFFICIAL_MARKER:
                 messagebox.showinfo(
                     '写入成功',
                     '安全模式标记已写入：\n%s\n\n'
                     '请重启手机，重启后到模式 5 卸载问题模块。' % path)
+            elif path:
+                messagebox.showwarning(
+                    '已写入（非官方路径）',
+                    '未能写入官方路径，仅写入了：\n%s\n\n'
+                    '该路径不一定被当前 KernelSU 版本识别。若重启后模块仍'
+                    '加载，请参考界面下方的手动指南进入安全模式。' % path)
             else:
                 messagebox.showerror('写入失败', '自动写入失败，请参考界面下方的手动指南。')
 

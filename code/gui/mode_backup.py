@@ -16,7 +16,10 @@ class BackupFrame(tk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent, bg=ui.C_BG)
         self.app = app
-        self.backup_path = os.path.join(core.ROOT_DIR, BACKUP_NAME)
+        # 备份需持久化：打包成 exe 后 core.ROOT_DIR 指向临时解包目录
+        # （_MEIPASS，退出即删），必须改用可写目录（exe 所在目录），
+        # 否则每次重启程序备份都会丢失。
+        self.backup_path = os.path.join(core._writable_dir(), BACKUP_NAME)
 
         p = ui.panel(self)
         p.pack(fill='both', expand=True, padx=1, pady=1)

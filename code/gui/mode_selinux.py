@@ -22,16 +22,17 @@ class SelinuxFrame(tk.Frame):
                   'Permissive（宽松）会放宽强制访问控制，便于调试但存在安全风险；\n'
                   'Enforcing（强制）为正常安全状态。Fastboot 下发的参数仅本次启动有效。')
 
-        # 当前状态卡
-        self.state_box, inner_card = ui.stat(
+        # 当前状态卡：stat() 返回 (外框, 数值标签)，数值标签即需更新的控件。
+        self.state_box, self.lbl_state = ui.stat(
             inner, '当前 SELinux 状态', value='—', color=ui.C_TEXT)
-        self.state_box.pack(fill='x', pady=(0, 6))
-        self.lbl_how = tk.Label(inner_card, text='', bg=ui.C_CARD, fg=ui.C_MUTED,
-                                font=ui.FONT_SMALL)
-        self.lbl_how.pack(anchor='w', padx=12, pady=(0, 8))
-        # 数值标签直接用 stat 返回的 Label，字体放大
-        self.lbl_state = self.state_box.winfo_children()[1]
+        self.state_box.pack(fill='x', pady=(0, 4))
+        # 放大数值字号并补足上下内边距，保证大号文字完整落在卡片内、不越界。
         self.lbl_state.configure(font=('Microsoft YaHei UI', 20, 'bold'))
+        self.lbl_state.pack_configure(pady=(2, 10))
+        # 说明文字放在状态卡下方（不能塞进数值标签内，否则会遮挡）。
+        self.lbl_how = tk.Label(inner, text='', bg=ui.C_PANEL, fg=ui.C_MUTED,
+                                font=ui.FONT_SMALL, anchor='w', justify='left')
+        self.lbl_how.pack(fill='x', pady=(0, 8))
 
         ui.button(inner, '读取当前状态', self.refresh_state)
 
@@ -74,7 +75,8 @@ class SelinuxFrame(tk.Frame):
     def _apply_state(self, val):
         """根据 getenforce 返回值渲染状态卡（主线程调用）。"""
         # 任务结束时可能已切换模式，控件被销毁则直接放弃本次渲染。
-        if not ui.widget_alive(self.lbl_state):
+        # lbl_state 与 lbl_how 会随同一 Frame 一起销毁，两者都要判存活。
+        if not (ui.widget_alive(self.lbl_state) and ui.widget_alive(self.lbl_how)):
             return
         if not val:
             self.lbl_state.configure(text='读取失败', fg=ui.C_MUTED)

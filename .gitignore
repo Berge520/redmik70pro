@@ -7,12 +7,26 @@ __pycache__/
 build/
 *.spec.bak
 
-# 运行日志（保留 dist/ 下的 exe，仅忽略其日志）
-code/logs/
-code/dist/logs/
+# 运行日志。日志写入位置随运行方式变化：
+#   源码运行 → code/logs/；打包 exe 运行 → exe 同级的 logs/（含仓库根、code/dist/）。
+# 无前缀可匹配任意层级的 logs 目录，避免遗漏某一种运行方式产生的日志。
+logs/
 
 # 本地日志输出
 ksulog.txt
 
-# 本地遗留的旧打包（不随仓库分发，成品请用 code/dist/RootTool.exe）
+# 构建产物：exe 不入库，由 GitHub Actions 产出（Release/artifact）或本地自行构建。
+# 若入库，每次构建都会产生 ~19MB 二进制，导致仓库持续膨胀。
+# 整目录忽略同时覆盖 code/dist/logs/（运行日志）。
+code/dist/
+
+# 本地遗留的旧版免安装包（不随仓库分发）
 *免安装版.zip
+小米红米临时Root专业工具_*.zip
+
+# 根目录旧版遗留成品（已废弃，构建产物见 code/dist/，不入库）
+/RootTool.exe
+
+# 旧方案（命令行）的必需载荷包：体积过大（约 23MB）不宜入库，
+# 改随 GitHub Releases 分发（见 README「获取所需文件」与 docs/troubleshooting.md）。
+附件.zip

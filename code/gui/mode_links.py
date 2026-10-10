@@ -19,6 +19,10 @@ LINKS = [
      'https://github.com/JingMatrix/Vector', ui.C_OK),
 ]
 
+# 本项目自身仓库地址（LINKS 首项），供「打开本项目仓库」按钮使用。
+# 单独命名，避免依赖 LINKS 的下标顺序，列表调整时不会静默指错链接。
+PROJECT_URL = LINKS[0][2]
+
 
 class LinksFrame(tk.Frame):
     def __init__(self, parent, app):
@@ -76,7 +80,7 @@ class LinksFrame(tk.Frame):
             self.app.log_out('[错误] 无法打开链接：%s（%s）' % (url, e))
 
     def open_project(self):
-        self._open(LINKS[0][2])
+        self._open(PROJECT_URL)
 
     def open_all(self):
         for _name, _desc, url, _color in LINKS:

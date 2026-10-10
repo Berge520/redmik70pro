@@ -61,10 +61,16 @@ class StatusFrame(tk.Frame):
         self.start(silent=True)
 
     def refresh_all(self):
-        """刷新设备连接，并在有新设备时重新检测。"""
-        self.app.refresh_devices()
-        if self.app.device.any:
-            self.start(silent=True)
+        """刷新设备连接，并在刷新完成后按最新状态决定是否重新检测。
+
+        refresh_devices 是异步的，调用后 self.app.device 还是旧值，
+        直接读取会用到过期状态，因此把后续判断放进 on_done 回调。
+        """
+        def after_refresh(st):
+            if st is not None and st.any:
+                self.start(silent=True)
+
+        self.app.refresh_devices(on_done=after_refresh)
 
     def _reset(self):
         for i in self.tree.get_children():
@@ -156,20 +162,20 @@ class StatusFrame(tk.Frame):
         return rows
 
     def _probe_root(self, r):
-        if r.su('echo 1', quiet=True, timeout=15).ok:
-            return '已获取', 'su 命令生效', 'ok'
-        if r.su('id', quiet=True, timeout=15).ok:
-            return '已获取', 'su 命令生效', 'ok'
-        if 'uid=0' in r.shell('id', quiet=True, timeout=15).text:
-            return '已获取', '当前 shell 为 root', 'ok'
+        # 权威口径与 core.is_root 完全一致：只认真实 uid=0 证据，
+        # 避免与其它模式（提权流程）给出的结论互相矛盾。
+        if core.is_root(r):
+            return '已获取', 'su/shell 返回 uid=0', 'ok'
+        # 以下为旁证，只能给出「疑似」提示：载荷已推送但提权尚未生效时
+        # 这些条件同样成立，不足以判定已 Root。
         if r.shell('test -x /data/adb/ksud', quiet=True, timeout=15).ok:
-            return '已获取（疑似 LKM）', '/data/adb/ksud 存在', 'ok'
+            return '疑似已 Root（未确认）', '/data/adb/ksud 存在（旁证，不代表已提权）', 'warn'
         if 'kernelsu' in r.shell('ls /sys/module/', quiet=True, timeout=15).text.lower():
-            return '已获取（LKM 模式）', '内核模块 kernelsu 已加载', 'ok'
+            return '疑似已 Root（未确认）', '内核模块 kernelsu 已加载（旁证）', 'warn'
         sel = r.shell('getenforce', quiet=True, timeout=15).first()
         if sel.lower() == 'permissive':
             return '可能已获取（需确认）', 'SELinux 处于 Permissive', 'warn'
-        return '未获取', '以上方式均未通过', 'bad'
+        return '未获取', 'su 与 shell 均未返回 uid=0', 'bad'
 
     def _probe_ksu(self, r):
         if 'me.weishu.kernelsu' in r.shell('pm list packages', quiet=True, timeout=20).text:

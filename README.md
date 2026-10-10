@@ -10,7 +10,7 @@
 | 📱 设备 | 红米 K70 Pro（代号 `manet`） |
 | 🤖 系统 | 澎湃 OS（HyperOS 3）· Android 16 |
 | ⚙️ 方案 | KernelSU `ksud` · `late-load`（免解锁 · 临时 · 重启即失效） |
-| 🧰 工具 | [`code/`](code/README.md) 图形化一键工具（含免安装 exe）· 纯命令行方案 |
+| 🧰 工具 | [`code/`](code/README.md) 图形化一键工具（免安装 exe 由 Releases 提供）· 纯命令行方案 |
 | ⚠️ 风险 | **高危，请先备份数据**；**严禁刷入修改系统分区的模块** 🧱 |
 
 ---
@@ -29,11 +29,12 @@
 
 | 方式 | 获取 | 说明 |
 |--|--|--|
-| **A（推荐）** | 下载免安装包 `小米红米临时Root专业工具_*.zip` | 解压到任意位置，**双击 `启动Root工具.exe`** |
+| **A（推荐）** | 到本仓库 **Releases** 页下载 `RootTool.exe`（由 GitHub Actions 构建；也可按 [code/README.md](code/README.md) 本地自行构建） | 单文件免安装，放到任意位置**双击即用**，无需另放 `adb.exe` / `fastboot.exe` / `ksud` |
 | B | 源码运行 | 需 Python 3.8+，见 [code/README.md](code/README.md) |
 
-> ⚠️ **不要**把 exe 单独挪出来！免安装版需与 `adb.exe` / `fastboot.exe` / `ksud` 放在同一文件夹内。
-> 首次运行可能被 Windows Defender / 杀软误报（PyInstaller 打包常见现象），添加信任即可（源码完全开源可查）。
+> ⚠️ exe 已**内嵌** `adb.exe` / `fastboot.exe` / `ksud` 等二进制，**无需**与工具文件放同一目录，
+> 单独拷走也能运行。首次运行可能被 Windows Defender / 杀软误报（PyInstaller 打包常见现象），
+> 添加信任即可（源码完全开源可查）。
 
 ### 第三步 · 一键提权（主推）
 
@@ -68,7 +69,7 @@
 
 - [🔰 原理简述](#-原理简述)
 - [🧩 功能模式一览](#-功能模式一览)
-- [📦 附件说明](#-附件说明)
+- [📦 获取所需文件](#-获取所需文件)
 - [🆘 常见问题 / 排查](#-常见问题--排查)
 - [↩️ 如何恢复 / 回退](#️-如何恢复--回退)
 - [🛠️ 命令行方案（旧）](#️-命令行方案旧)
@@ -121,28 +122,38 @@ Fastboot: 下发 androidboot.selinux=permissive（临时，不写入分区）
 
 ---
 
-## 📦 附件说明
+## 📦 获取所需文件
 
-本仓库提供两个压缩包，用途不同：
+本方案涉及**两类文件**，分别对应**两套方案**。二者**均不随仓库源码分发**（exe 由 CI 构建、附件为第三方组件），到 **Releases** 页获取：
 
-| 压缩包 | 内容 | 用途 |
+| 文件 | 获取方式 | 用于 |
 |--|--|--|
-| `小米红米临时Root专业工具_*.zip` | `启动Root工具.exe` + `adb.exe` / `fastboot.exe` / `ksud` + 原生 DLL | **免安装图形工具**，解压即用（推荐） |
-| `附件.zip` | KernelSU 管理器 APK、`ksud`、Zygisk-Next、Xposed 框架模块、热重启模块、`fix_lspd.sh` | 命令行方案所需的模块与载荷 |
+| `RootTool.exe` | 到本仓库 **[Releases](../../releases)** 页 Assets 处下载**最新版**（GitHub Actions 构建产物），或按 [code/README.md](code/README.md) 本地自行构建 | **新方案（图形工具，推荐）**，双击即用 |
+| `附件.zip` | 到 **[v0.0.1 Release](../../releases/tag/v0.0.1)** 的 Assets 处下载（附件为固定的第三方组件快照，**仅随首个版本发布一次**，不随工具版本更新；也可按下方「内容一览」自行收集同名组件） | **旧方案（命令行）**：其中 `ksud` 等载荷需为本方案**专用版本** |
 
-**`附件.zip` 内容一览：**
+**`附件.zip` 内容一览**：
 
 | 文件 | 说明 |
 |--|--|
-| `KernelSU_v3.1.0-29-gf0615d3c_32331-release.apk` | KernelSU 管理器（安装到手机） |
-| `ksud` | KernelSU 提权载荷（推送到设备执行） |
-| `Zygisk-Next-1.3.2-688-2c60cdd-release.zip` | Zygisk 实现模块（KernelSU 刷入） |
-| `LSPosed-v1.11.0-7209-zygisk-release.zip` | Xposed 框架（早期版本，现推荐改用 **Vector**，见下） |
+| `KernelSU_*.apk` | KernelSU 管理器（安装到手机） |
+| `ksud` | KernelSU 提权载荷，**旧方案专用版本**（推送到设备执行） |
+| `Zygisk-Next-*.zip` | Zygisk 实现模块（KernelSU 刷入） |
+| `Vector-*-release.zip`（或 `LSPosed-*.zip`） | Xposed 框架（LSPosed 现代复刻，推荐） |
 | 热重启模块.zip | 管理器不带「软重启」时使用的热重启模块 |
 | `fix_lspd.sh` | Zygisk / Xposed 注入异常时的重新注入脚本 |
 
+> ⚠️ **走旧方案（命令行）时，请用 `附件.zip` 自带的 `ksud`，勿替换为官方最新版** ——
+> 旧方案的 `service call late-load` 是针对该版本编写的，换版可能导致**注入失败**
+> （见 [更新维护指南](docs/maintenance.md) 的版本告警）。
+
+> 💡 **想用最新版组件**（不依赖旧方案）时，可到各组件官方仓库下载：
+> [KernelSU](https://github.com/tiann/KernelSU/releases) ·
+> [Zygisk-Next](https://github.com/Dr-TSNG/ZygiskNext/releases) ·
+> [Vector](https://github.com/JingMatrix/Vector/releases)。
+> 配套更新流程见 [更新维护指南](docs/maintenance.md)。
+
 > **关于 Xposed 框架**：`JingMatrix/Vector` 即原 **LSPosed** 的现代复刻，自 v2.0 起正式更名为 Vector，两者指同一框架。
-> 更新到新版时请优先选用 **Vector**（下载与对比见 [更新Kernel-Zygisk-Vector.md](更新Kernel-Zygisk-Vector.md)）。
+> 更新到新版时请优先选用 **Vector**（下载与对比见 [更新维护指南](docs/maintenance.md)）。
 
 ---
 
@@ -155,7 +166,7 @@ Fastboot: 下发 androidboot.selinux=permissive（临时，不写入分区）
 | 注入后 `su` 不可用 | 查看加载日志：`adb pull /sdcard/ksulog.txt`，确认 `ksud` 是否加载成功 |
 | KernelSU 管理器**没有「越狱」按钮** | 属**旧版 KernelSU**：需手动推送 `ksud` 并执行 `service call`（见 [命令行方案](#️-命令行方案旧) 步骤 4~6，或工具模式 3 的「旧版流程」） |
 | KernelSU 显示未加载 | 确认已授予 `shell` root 权限（模式 2 / 管理器内授权） |
-| 重越狱后 Vector「未激活」 | **预期现象**：`late-load` 不触发 `post-fs-data`，用**模式 6「一键激活」**修复；详见 [排查记录](排查记录-Vector未激活.md) |
+| 重越狱后 Vector「未激活」 | **预期现象**：`late-load` 不触发 `post-fs-data`，用**模式 6「一键激活」**修复；详见 [排查记录](docs/troubleshooting.md) |
 | 卡在 MIUI Logo | 强制重启（电源 + 音量上）；可用 `fastboot reboot` 恢复 |
 | 银行 / 支付 App 无法使用 | 临时 Root 后该类应用通常会检测并拦截，属预期行为 |
 | 重启后失效 | **正常现象**——本次为临时 Root，重启即还原 |
@@ -193,8 +204,12 @@ fastboot reboot
 |--|--|
 | 红米 K70 Pro | 已开启 USB 调试（见[快速开始](#-快速开始)） |
 | 电脑 + adb 环境 | 见下方步骤 1 |
-| `附件.zip` | 含 `ksud`、KernelSU 管理器 APK、Zygisk-Next、Xposed 框架模块、`fix_lspd.sh` 等 |
+| `附件.zip`（**必需**，见 [v0.0.1 Release](../../releases/tag/v0.0.1)） | 含本方案**专用**的 `ksud`、KernelSU 管理器 APK、Zygisk-Next、Xposed 框架模块、`fix_lspd.sh` 等（见[获取所需文件](#-获取所需文件)） |
 | USB 数据线 | 连接 K70 Pro 与电脑 |
+
+> ⚠️ **本（旧）方案的 `ksud` 必须用 `附件.zip` 里的那个专用版本**，**不要**换成官方最新版：
+> 本节步骤 4 的 `service call late-load` 是针对该版本编写的，换版可能**注入失败**
+> （原因见 [更新维护指南](docs/maintenance.md) 的版本告警）。
 
 #### 1. 电脑 adb 环境搭建（已安装可跳过）
 
@@ -204,8 +219,8 @@ fastboot reboot
 
 #### 2. 放置 ksud 并安装 KernelSU 管理器
 
-1. 把 `附件.zip` 中的 **`ksud`** 放到 **adb.exe 所在目录**（例如 `D:\adb\platform-tools`）。
-2. 在手机上安装 **KernelSU 管理器**（`KernelSU_v3.1.0-29-gf0615d3c_32331-release.apk`）。
+1. 把 **`附件.zip` 中的 `ksud`** 放到 **adb.exe 所在目录**（例如 `D:\adb\platform-tools`）。⚠️ 请用附件自带的版本，勿换官方最新版。
+2. 在手机上安装 **KernelSU 管理器**（`附件.zip` 中的 KernelSU 管理器 APK）。
 
 ### 提权步骤
 
@@ -288,7 +303,7 @@ adb shell su -c setenforce 1
 > ⚠️ **`late-load` 模式下 Zygisk 不会自启**：重越狱后需手动补执行
 > `post-fs-data.sh` 拉起 `zn-daemon`，再重启两个 zygote（`zygote` 与
 > `zygote_mi_secondary`），Vector 才会激活。等价于图形工具**模式 6「一键激活」**，
-> 完整原理见 [排查记录-Vector未激活.md](排查记录-Vector未激活.md)。
+> 完整原理见 [排查记录](docs/troubleshooting.md)。
 >
 > 🧱 **不要刷修改系统分区模块**，否则会变砖！
 
@@ -334,8 +349,8 @@ adb shell su -c id            # 期望输出 uid=0(root)
 ### 仓库内文档
 
 - [code/README.md](code/README.md) — 图形化工具完整说明（界面构成、操作指引、打包）
-- [更新Kernel-Zygisk-Vector.md](更新Kernel-Zygisk-Vector.md) — 更新 KernelSU 组件 / Zygisk / Vector 的维护流程
-- [排查记录-Vector未激活.md](排查记录-Vector未激活.md) — Vector「未激活」根因与一键恢复方案
+- [docs/maintenance.md](docs/maintenance.md) — 更新 KernelSU 组件 / Zygisk / Vector 的维护流程
+- [docs/troubleshooting.md](docs/troubleshooting.md) — Vector「未激活」根因与一键恢复方案
 - [CHANGELOG.md](CHANGELOG.md) — 更新记录
 
 ---

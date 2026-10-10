@@ -198,11 +198,23 @@ def ico_bytes():
 
 
 def icon_path():
-    """返回仓库内预生成的 brand.ico 路径（不存在则返回 None）。"""
+    """返回仓库内预生成的 brand.ico 路径（不存在则返回 None）。
+
+    打包成 exe 后，brand.ico 由 spec 的 datas 放在解包根目录（_MEIPASS），
+    而本模块文件位于 _MEIPASS/gui/ 下，因此需要一并检查上两级目录。
+    """
     here = os.path.dirname(os.path.abspath(__file__))
-    for base in (os.path.join(here, 'assets'),
-                 here,
-                 os.path.join(os.path.dirname(here), 'packaging')):
+    bases = [
+        os.path.join(here, 'assets'),
+        here,
+        os.path.join(os.path.dirname(here), 'packaging'),
+    ]
+    # PyInstaller 解包目录（brand.ico 由 datas 复制到该目录根部）
+    bundle = getattr(sys, '_MEIPASS', None)
+    if bundle:
+        bases.append(os.path.join(bundle, 'packaging'))
+        bases.append(bundle)
+    for base in bases:
         cand = os.path.join(base, ICO_NAME)
         if os.path.isfile(cand):
             return cand

@@ -8,6 +8,8 @@ from tkinter import ttk, messagebox
 import core
 import main as ui
 
+_sleep_cancellable = core.sleep_cancellable
+
 
 class FastbootFrame(tk.Frame):
     def __init__(self, parent, app):
@@ -27,7 +29,7 @@ class FastbootFrame(tk.Frame):
         # 顶部一键流程
         top = tk.Frame(inner, bg=ui.C_PANEL)
         top.pack(fill='x', pady=(0, 10))
-        ui.button(top, '★ 一键完整流程', self.do_all, accent=True)
+        self.btn_all = ui.button(top, '★ 一键完整流程', self.do_all, accent=True)
         ui.button(top, '刷新设备连接', app.refresh_devices)
         ui.button(top, '检查 Fastboot 连接', self.check_fb)
         ui.button(top, '检查 Root 状态', self.check_root)
@@ -139,15 +141,22 @@ class FastbootFrame(tk.Frame):
         app.log_out('等待设备进入 Fastboot（最长 %d 秒）...' % timeout)
         waited = 0
         while waited < timeout:
-            res = r.run(['fastboot', 'getvar', 'product'], quiet=True, timeout=15)
+            if ctl.cancelled:
+                app.log_out('[已取消] 停止等待 Fastboot。')
+                return False
+            # 单次探测设短超时：设备未就绪时命令很快返回错误，无需长阻塞。
+            # quiet=True 让轮询过程中的命令行/超时不再写入日志，避免刷屏。
+            res = r.run(['fastboot', 'getvar', 'product'], quiet=True, timeout=6)
             if 'product' in res.text.lower():
                 app.log_out('[成功] 已进入 Fastboot。')
                 app.device.fastboot = True
                 app.device.adb = False
                 app.refresh_devices()
                 return True
-            time.sleep(2)
-            waited += 2
+            _sleep_cancellable(ctl, 1)
+            waited += 1
+            if waited % 15 == 0:
+                app.log_out('等待中... %d 秒' % waited)
         app.log_out('[超时] 未检测到 Fastboot 设备，请确认驱动已安装或换用 USB 2.0 接口。')
         return False
 
@@ -200,7 +209,7 @@ class FastbootFrame(tk.Frame):
                 app.log_out('[成功] 系统已完全启动（耗时 %d 秒）。' % waited)
                 app.refresh_devices()
                 return True
-            time.sleep(2)
+            _sleep_cancellable(ctl, 2)
             waited += 2
             if waited % 20 == 0:
                 app.log_out('等待中... %d 秒' % waited)
@@ -229,18 +238,16 @@ class FastbootFrame(tk.Frame):
         self.app.run_task(job, busy_text='正在推送 ksud...', done_text='推送完成')
 
     def step6(self):
-        from mode_adb import EXPLOIT_CMD
-
-        def job(_ctl):
+        def job(ctl):
             app = self.app
             r = app.runner
             app.log_out('[步骤6] 执行 service call 漏洞...')
-            res = r.run(['adb', 'shell', EXPLOIT_CMD], quiet=True, timeout=40)
+            res = r.run(['adb', 'shell', core.EXPLOIT_CMD], quiet=True, timeout=40)
             if not res.ok:
                 app.log_out('[错误] service call 执行失败。')
                 return False
             app.log_out('[提示] 命令已发送，等待 3 秒...')
-            time.sleep(3)
+            _sleep_cancellable(ctl, 3)
             if core.is_root(r):
                 app.log_out('[成功] Root 已获取。')
             else:
@@ -285,24 +292,56 @@ class FastbootFrame(tk.Frame):
                 '新版 KernelSU 执行到 [3] 后，在管理器点「越狱」即可。\n'
                 '全程需要数分钟，期间请勿断开 USB。是否开始？'):
             return
-        self.app.run_task(self._work_all, busy_text='正在执行一键流程...',
-                          done_text='一键流程结束')
+        # 流程长达数分钟，期间禁用入口按钮，避免用户重复点击。
+        # （run_task 的 _busy 也会拦截并发任务，这里只是给出更直观的反馈。）
+        try:
+            self.btn_all.state(['disabled'])
+        except tk.TclError:
+            pass
+        self.app.run_task(self._work_all, on_done=self._restore_all_btn,
+                          busy_text='正在执行一键流程...', done_text='一键流程结束')
+
+    def _restore_all_btn(self, _result=None):
+        """一键流程结束（成功/失败/取消）后恢复入口按钮。"""
+        try:
+            self.btn_all.state(['!disabled'])
+        except tk.TclError:
+            pass
 
     def _work_all(self, ctl):
-        if not self._wait_fastboot(ctl):
-            return False
-
         app = self.app
         r = app.runner
 
+        if not self._wait_fastboot(ctl):
+            app.log_out('[中止] 未进入 Fastboot，一键流程结束。')
+            return False
+
+        if ctl.cancelled:
+            app.log_out('[已取消] 一键流程已中断。')
+            return False
+
         app.log_out('[步骤2] 设置 SELinux 宽松模式...')
-        r.run(['fastboot', 'oem', 'set-gpu-preemption', '0',
-               'androidboot.selinux=permissive'], quiet=True, timeout=30)
+        res = r.run(['fastboot', 'oem', 'set-gpu-preemption', '0',
+                     'androidboot.selinux=permissive'], quiet=True, timeout=30)
+        if not res.ok:
+            app.log_out('[警告] SELinux 参数下发返回非 0，部分机型不支持该 OEM 命令，继续尝试。')
+
+        if ctl.cancelled:
+            app.log_out('[已取消] 一键流程已中断。')
+            return False
 
         app.log_out('[步骤3] 继续启动系统...')
-        r.run(['fastboot', 'continue'], quiet=True, timeout=30)
+        res = r.run(['fastboot', 'continue'], quiet=True, timeout=30)
+        if not res.ok:
+            app.log_out('[中止] fastboot continue 失败，请确认设备处于 Fastboot 模式。')
+            return False
 
         if not self._wait_boot(ctl):
+            app.log_out('[中止] 等待系统启动超时或被取消，一键流程结束。')
+            return False
+
+        if ctl.cancelled:
+            app.log_out('[已取消] 一键流程已中断。')
             return False
 
         ksud = core.find_ksud()
@@ -314,13 +353,17 @@ class FastbootFrame(tk.Frame):
                      quiet=True, timeout=90).ok:
             app.log_out('[错误] adb push 失败。')
             return False
-        r.shell('chmod 777 /data/local/tmp/ksud', quiet=True, timeout=20)
+        if not r.shell('chmod 777 /data/local/tmp/ksud', quiet=True, timeout=20).ok:
+            app.log_out('[警告] chmod 未成功，后续提权可能失败。')
         app.log_out('[成功] ksud 已推送。')
 
+        if ctl.cancelled:
+            app.log_out('[已取消] 一键流程已中断。')
+            return False
+
         app.log_out('[步骤6] 执行漏洞提权...')
-        from mode_adb import EXPLOIT_CMD
-        r.run(['adb', 'shell', EXPLOIT_CMD], quiet=True, timeout=40)
-        time.sleep(3)
+        r.run(['adb', 'shell', core.EXPLOIT_CMD], quiet=True, timeout=40)
+        _sleep_cancellable(ctl, 3)
         if core.is_root(r):
             app.log_out('[成功] Root 已获取。')
         else:

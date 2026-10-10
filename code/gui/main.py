@@ -209,11 +209,65 @@ class App(tk.Tk):
         right.pack(side='left', fill='both', expand=True, padx=(12, 12),
                    pady=(10, 0))
 
-        self.content = tk.Frame(right, bg=C_BG)
-        self.content.pack(fill='both', expand=True)
+        # 内容区：放进可纵向滚动的画布，避免高内容（如 Zygisk/Xposed/模块列表）
+        # 超出窗口高度时被裁掉、导致表格只露出表头却看不到数据。
+        self._build_content_area(right)
 
         # 底部日志
         self._build_logpanel(right)
+
+    def _build_content_area(self, parent):
+        """构造可纵向滚动的模式内容容器，暴露为 self.content。"""
+        holder = tk.Frame(parent, bg=C_BG)
+        holder.pack(fill='both', expand=True)
+
+        canvas = tk.Canvas(holder, bg=C_BG, highlightthickness=0, bd=0)
+        vsb = ttk.Scrollbar(holder, orient='vertical', command=canvas.yview,
+                            style='Log.Vertical.TScrollbar')
+        canvas.configure(yscrollcommand=vsb.set)
+        vsb.pack(side='right', fill='y')
+        canvas.pack(side='left', fill='both', expand=True)
+
+        self.content = tk.Frame(canvas, bg=C_BG)
+        self._content_window = canvas.create_window(
+            (0, 0), window=self.content, anchor='nw')
+        self._content_canvas = canvas
+
+        # 内容尺寸变化时同步滚动范围
+        def _on_content_config(_e):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+
+        def _on_canvas_config(e):
+            # 让内容宽度始终等于画布宽度（横向不滚动，只纵向滚动）
+            canvas.itemconfigure(self._content_window, width=e.width)
+
+        self.content.bind('<Configure>', _on_content_config)
+        canvas.bind('<Configure>', _on_canvas_config)
+
+        # 鼠标滚轮：指针在内容区上时滚动；表格/日志等自带滚动条的控件不接管。
+        canvas.bind_all('<MouseWheel>', lambda e: self._wheel_if_inside(e, canvas))
+        canvas.bind_all('<Button-4>', lambda e: self._wheel_if_inside(e, canvas, True))
+        canvas.bind_all('<Button-5>', lambda e: self._wheel_if_inside(e, canvas, True))
+
+    def _wheel_if_inside(self, event, canvas, linux=False):
+        """仅当鼠标位于内容区上方时滚动，避免影响日志区/表格自身滚动。"""
+        try:
+            w = self.winfo_containing(event.x_root, event.y_root)
+        except Exception:
+            return
+        # 指针在表格/日志等自带滚动条的控件上时不接管
+        while w is not None:
+            if w is canvas:
+                if linux:
+                    canvas.yview_scroll(-1 if event.num == 4 else 1, 'units')
+                else:
+                    canvas.yview_scroll(int(-event.delta / 120), 'units')
+                return
+            if w in (self.log_text,):
+                return
+            if w.winfo_class() in ('Treeview', 'Text'):
+                return
+            w = w.master
 
     def _build_header(self):
         head = tk.Frame(self, bg=C_SIDE, height=56)
@@ -351,8 +405,11 @@ class App(tk.Tk):
                 fg=C_ACCENT if active else C_MUTED)
 
     def _build_logpanel(self, parent):
-        wrap = tk.Frame(parent, bg=C_BG)
-        wrap.pack(fill='both', expand=False, pady=(0, 0))
+        # 固定高度的日志面板：不参与纵向伸缩，避免内容区（expand=True）
+        # 把日志区挤到只剩标题栏，导致「无法看见日志」。
+        wrap = tk.Frame(parent, bg=C_BG, height=210)
+        wrap.pack(fill='x', side='bottom', expand=False, pady=(0, 0))
+        wrap.pack_propagate(False)
 
         # 与内容区之间的分隔线
         tk.Frame(wrap, bg=C_BORDER, height=1).pack(fill='x', pady=(6, 8))
@@ -378,11 +435,11 @@ class App(tk.Tk):
                   activeforeground=C_ACCENT_DARK,
                   cursor='hand2').pack(side='right', padx=8)
 
-        # 日志区：macOS 终端风深灰底 + 圆角描边
-        box = tk.Frame(wrap, bg='#1c1c1e', height=176,
+        # 日志区：macOS 终端风深灰底 + 圆角描边。
+        # 填满 wrap 的剩余空间（wrap 已固定高度，此处不再用固定高度）。
+        box = tk.Frame(wrap, bg='#1c1c1e',
                        highlightbackground='#2c2c2e', highlightthickness=1)
-        box.pack(fill='both', expand=True)
-        box.pack_propagate(False)
+        box.pack(fill='both', expand=True, pady=(0, 6))
         self.log_text = tk.Text(box, bg='#1c1c1e', fg='#e5e5ea', insertbackground='#e5e5ea',
                                 font=FONT_MONO, bd=0, wrap='none', state='disabled',
                                 padx=10, pady=8, selectbackground='#0a84ff')
@@ -489,7 +546,7 @@ class App(tk.Tk):
     # -----------------------------------------------------------
     #  设备状态
     # -----------------------------------------------------------
-    def refresh_devices(self, initial=False):
+    def refresh_devices(self, initial=False, on_done=None):
         def job(_ctl):
             return core.detect_devices(self.runner)
 
@@ -498,6 +555,9 @@ class App(tk.Tk):
             self._ui_queue.put(('devices', st))
             if not initial:
                 self.set_status('设备状态已刷新')
+            # on_done 由后台线程回调，需调度回主线程再执行。
+            if on_done is not None:
+                self._ui_queue.put(('call', lambda: on_done(st)))
 
         self.set_status('正在检测设备...')
         core.Task(job, on_done=done).start()

@@ -111,7 +111,8 @@ class ModulesFrame(tk.Frame):
             items = core.list_module_states(app.runner)
             for folder, name, state in items:
                 app.log_out('  [%s] %s（%s）'
-                            % (folder, name or '（无描述信息）', STATE_TEXT[state]))
+                            % (folder, name or '（无描述信息）',
+                               STATE_TEXT.get(state, state)))
             if not items:
                 app.log_out('未发现任何模块。')
             return items
@@ -124,7 +125,12 @@ class ModulesFrame(tk.Frame):
                     self.tree.delete(i)
                 self.lbl_count.configure(text='读取失败：未获取 Root 权限')
                 return
-            self.app.mode_cache['modules'] = list(items)
+            # 仅在读到内容时写缓存：空列表不应覆盖缓存，否则下次进入模式
+            # 会命中"空缓存"直接渲染空表，掩盖了本可复用的历史结果。
+            if items:
+                self.app.mode_cache['modules'] = list(items)
+            else:
+                self.app.mode_cache.pop('modules', None)
             self._render(items)
 
         self.app.run_task(job, on_done=done, busy_text='正在读取模块列表...',
@@ -190,7 +196,9 @@ class ModulesFrame(tk.Frame):
             app = self.app
             r = app.runner
             app.log_out('---------- %s模块 %s ----------' % (act, folder))
-            if not r.shell('test -d %s' % base, quiet=True, timeout=15).ok:
+            # /data/adb/modules 仅 root 可读，探测必须走 su，
+            # 否则非 root 的 test 必然失败，导致无法禁用/启用。
+            if not r.su('test -d %s' % base, quiet=True, timeout=15).ok:
                 app.log_out('[错误] 模块不存在或无法访问。')
                 return False
             if r.su(cmd, quiet=True, timeout=20).ok:
@@ -235,8 +243,9 @@ class ModulesFrame(tk.Frame):
             r = app.runner
             app.log_out('---------- 卸载模块 %s ----------' % folder)
 
-            if not r.shell('test -d /data/adb/modules/%s' % folder,
-                           quiet=True, timeout=15).ok:
+            # 同上：目录存在性探测必须以 root 执行。
+            if not r.su('test -d /data/adb/modules/%s' % folder,
+                        quiet=True, timeout=15).ok:
                 app.log_out('[错误] 模块不存在或无法访问。')
                 return False
 
