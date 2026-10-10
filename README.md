@@ -129,9 +129,9 @@ Fastboot: 下发 androidboot.selinux=permissive（临时，不写入分区）
 | 文件 | 获取方式 | 用于 |
 |--|--|--|
 | `RootTool.exe` | 到本仓库 **[Releases](../../releases)** 页 Assets 处下载**最新版**（GitHub Actions 构建产物），或按 [code/README.md](code/README.md) 本地自行构建 | **新方案（图形工具，推荐）**，双击即用 |
-| `附件.zip` | 到 **[v0.0.1 Release](../../releases/tag/v0.0.1)** 的 Assets 处下载（附件为固定的第三方组件快照，**仅随首个版本发布一次**，不随工具版本更新；也可按下方「内容一览」自行收集同名组件） | **旧方案（命令行）**：其中 `ksud` 等载荷需为本方案**专用版本** |
+| 附件包 | 到 **[v0.0.1 Release](../../releases/tag/v0.0.1)** 的 Assets 处下载，Release 中文件名显示为 **`fujian.zip`**（即本文所称「附件包」；它是固定的第三方组件快照，**仅随首个版本发布一次**，不随工具版本更新；也可按下方「内容一览」自行收集同名组件） | **旧方案（命令行）**：其中 `ksud` 等载荷需为本方案**专用版本** |
 
-**`附件.zip` 内容一览**：
+**附件包内容一览**：
 
 | 文件 | 说明 |
 |--|--|
@@ -142,7 +142,7 @@ Fastboot: 下发 androidboot.selinux=permissive（临时，不写入分区）
 | 热重启模块.zip | 管理器不带「软重启」时使用的热重启模块 |
 | `fix_lspd.sh` | Zygisk / Xposed 注入异常时的重新注入脚本 |
 
-> ⚠️ **走旧方案（命令行）时，请用 `附件.zip` 自带的 `ksud`，勿替换为官方最新版** ——
+> ⚠️ **走旧方案（命令行）时，请用附件包（`fujian.zip`）自带的 `ksud`，勿替换为官方最新版** ——
 > 旧方案的 `service call late-load` 是针对该版本编写的，换版可能导致**注入失败**
 > （见 [更新维护指南](docs/maintenance.md) 的版本告警）。
 
@@ -204,10 +204,10 @@ fastboot reboot
 |--|--|
 | 红米 K70 Pro | 已开启 USB 调试（见[快速开始](#-快速开始)） |
 | 电脑 + adb 环境 | 见下方步骤 1 |
-| `附件.zip`（**必需**，见 [v0.0.1 Release](../../releases/tag/v0.0.1)） | 含本方案**专用**的 `ksud`、KernelSU 管理器 APK、Zygisk-Next、Xposed 框架模块、`fix_lspd.sh` 等（见[获取所需文件](#-获取所需文件)） |
+| 附件包（**必需**，见 [v0.0.1 Release](../../releases/tag/v0.0.1)，文件名 `fujian.zip`） | 含本方案**专用**的 `ksud`、KernelSU 管理器 APK、Zygisk-Next、Xposed 框架模块、`fix_lspd.sh` 等（见[获取所需文件](#-获取所需文件)） |
 | USB 数据线 | 连接 K70 Pro 与电脑 |
 
-> ⚠️ **本（旧）方案的 `ksud` 必须用 `附件.zip` 里的那个专用版本**，**不要**换成官方最新版：
+> ⚠️ **本（旧）方案的 `ksud` 必须用附件包（`fujian.zip`）里的那个专用版本**，**不要**换成官方最新版：
 > 本节步骤 4 的 `service call late-load` 是针对该版本编写的，换版可能**注入失败**
 > （原因见 [更新维护指南](docs/maintenance.md) 的版本告警）。
 
@@ -219,8 +219,8 @@ fastboot reboot
 
 #### 2. 放置 ksud 并安装 KernelSU 管理器
 
-1. 把 **`附件.zip` 中的 `ksud`** 放到 **adb.exe 所在目录**（例如 `D:\adb\platform-tools`）。⚠️ 请用附件自带的版本，勿换官方最新版。
-2. 在手机上安装 **KernelSU 管理器**（`附件.zip` 中的 KernelSU 管理器 APK）。
+1. 把 **附件包（`fujian.zip`）中的 `ksud`** 放到 **adb.exe 所在目录**（例如 `D:\adb\platform-tools`）。⚠️ 请用附件自带的版本，勿换官方最新版。
+2. 在手机上安装 **KernelSU 管理器**（附件包中的 KernelSU 管理器 APK）。
 
 ### 提权步骤
 
@@ -294,10 +294,10 @@ adb shell su -c setenforce 1
 
 #### 7. 安装 Zygisk / Xposed 框架（可选）
 
-1. 在 KernelSU 管理器里刷入 `附件.zip` 中的 **Zygisk-Next** 与 Xposed 框架模块（推荐 **Vector**）。
-2. 如需**热重启**，刷入 `附件.zip` 中的**热重启模块**。
+1. 在 KernelSU 管理器里刷入附件包（`fujian.zip`）中的 **Zygisk-Next** 与 Xposed 框架模块（推荐 **Vector**）。
+2. 如需**热重启**，刷入附件包（`fujian.zip`）中的**热重启模块**。
 3. **重启**后按**步骤 4 ~ 6** 重新激活 KernelSU。
-4. MT 管理器授予 root 权限，执行 `附件.zip` 里的 **`fix_lspd.sh`**。
+4. MT 管理器授予 root 权限，执行附件包（`fujian.zip`）里的 **`fix_lspd.sh`**。
 5. 之后若模块需要**重启系统框架**，只需**再执行一次 `fix_lspd.sh`**。
 
 > ⚠️ **`late-load` 模式下 Zygisk 不会自启**：重越狱后需手动补执行

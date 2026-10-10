@@ -111,7 +111,7 @@
 | Vector | 最新版 | [JingMatrix/Vector › Releases](https://github.com/JingMatrix/Vector/releases) |
 
 > 💡 **本节讲的是「主动升级到最新版」**：各组件从**官方仓库**取最新版即可。
-> 但请注意：**旧方案默认用 `附件.zip` 内的专用 `ksud`**，升级属可选操作，
+> 但请注意：**旧方案默认用附件包（Release 文件名 `fujian.zip`）内的专用 `ksud`**，升级属可选操作，
 > 且升级后可能影响旧流程的兼容性（见下方 WARNING）。
 
 **放置要求**
