@@ -1,5 +1,9 @@
 # 红米 K70 Pro — 免解锁 临时 Root（KSU）
 
+![Build](https://github.com/Berge520/redmik70pro/actions/workflows/build.yml/badge.svg)
+![Release](https://img.shields.io/github/v/release/Berge520/redmik70pro)
+![License](https://img.shields.io/github/license/Berge520/redmik70pro)
+
 本仓库内容**仅适配红米 K70 Pro（`manet` / 骁龙 8 Gen 3）**，采用**电脑免刷**（免解锁 BL、不刷机）的临时 Root 方案。
 
 > 通过 KernelSU 的 `ksud` 经 MIUI / 澎湃 OS 系统服务接口注入并加载，在**本次开机**内获得 root 权限：
@@ -35,6 +39,9 @@
 > ⚠️ exe 已**内嵌** `adb.exe` / `fastboot.exe` / `ksud` 等二进制，**无需**与工具文件放同一目录，
 > 单独拷走也能运行。首次运行可能被 Windows Defender / 杀软误报（PyInstaller 打包常见现象），
 > 添加信任即可（源码完全开源可查）。
+>
+> 💡 **下载缓慢？** 若直连 GitHub Releases 速度慢或失败，可借助代理 / 加速镜像
+> （如 `ghproxy` 类服务：在资源直链前加镜像前缀）下载。
 
 ### 第三步 · 一键提权（主推）
 
