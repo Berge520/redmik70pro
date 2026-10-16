@@ -22,12 +22,21 @@ def main():
         mb.showerror('启动失败', '缺少依赖或文件：%s' % exc)
         return 1
 
-    # 单实例：若已有本工具在运行，询问用户是否结束旧实例。
-    # 用户选择保留旧实例时，本次启动直接中止。
+    # 提权重启场景：旧实例（非管理员）会在发起提权后自行退出，并已通过
+    # ELEVATED_FLAG 告知本实例。此时若仍走单实例询问，会去强杀尚在退出的
+    # 旧实例，导致新旧互相打断、"关了又开"。故带此标记时直接跳过询问，
+    # 改为短暂等待旧实例释放互斥体，随后正常启动。
+    elevated = '--elevated' in sys.argv
     try:
         import single_instance
-        if not single_instance.confirm_replace():
+        if elevated:
+            # 等待旧实例让位。若超时仍未释放（旧实例卡住），仍允许启动，
+            # 否则用户会陷入"提权后打不开"的死局。
+            single_instance.wait_for_release(timeout=5.0)
+        elif not single_instance.confirm_replace():
             return 0
+        # 本实例成为当前实例：登记 pid 与提权状态，供后续启动判断。
+        single_instance.write_registry()
     except Exception:
         # 单实例检测失败不应阻塞启动（例如非 Windows 环境）
         pass

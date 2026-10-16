@@ -70,7 +70,11 @@ exe = EXE(
     strip=False,
     upx=False,
     upx_exclude=[],
-    runtime_tmpdir=None,
+    # 固定临时解包目录：默认落在 %TEMP%\_MEIxxxxxx，退出时若被 adb server
+    # 等常驻子进程占用，引导器会弹出 "Failed to remove temporary directory"
+    # 警告。固定到 exe 同级目录后位置可预测、便于排查与手动清理。
+    # 设为 None 则回到系统默认 %TEMP%。
+    runtime_tmpdir=os.path.join(ROOT, 'runtime') if os.path.isdir(os.path.join(ROOT, 'runtime')) else None,
     console=False,          # 无控制台窗口（GUI 程序）
     disable_windowed_traceback=False,
     argv_emulation=False,
