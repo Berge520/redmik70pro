@@ -69,6 +69,9 @@ class App(tk.Tk):
         self.geometry(APP_GEOMETRY)
         self.minsize(*APP_MIN)
         self.configure(bg=C_BG)
+        # 接管窗口关闭（右上角 X），确保退出前也走清理流程，
+        # 否则直接 destroy 会漏掉 adb server 清理并触发 _MEI 删除警告。
+        self.protocol('WM_DELETE_WINDOW', self.on_close)
 
         self._ui_queue = queue.Queue()
         self._busy = False
@@ -77,6 +80,21 @@ class App(tk.Tk):
         self._last_device_sig = None
         self._task_started = 0.0
         self._current_task = None
+        # 任务代际号：每次发起任务 / 切换模式都会自增。
+        # 后台任务在启动时记下当时的代际，回调（on_done/on_error）执行前
+        # 比对代际，只有"仍是当前代"的回调才允许落地。
+        # 这样快速点击切换模式或连续触发检测时，早先任务迟到的回调会被
+        # 安全丢弃，不会去写已经销毁的控件、也不会错误复位 _busy。
+        self._generation = 0
+        # 设备刷新代际号：独立于任务代际。
+        # 设备检测是后台异步的，且启动时会先刷新再渲染模式。若与任务共用
+        # 同一代际，紧随其后的 show_mode 会把它作废，导致"启动检测不到、
+        # 必须手动点刷新"。故设备刷新单独计数，只被"更晚的设备刷新"取代，
+        # 不被模式切换影响。
+        self._dev_generation = 0
+        # 是否有设备扫描正在进行中。用于区分"扫描未完成"与"确实无设备"，
+        # 避免启动阶段误报"未检测到设备"。
+        self._dev_scanning = False
         # 各模式的检测结果缓存，切换模式回来时可秒开
         self.mode_cache = {}
 
@@ -99,9 +117,13 @@ class App(tk.Tk):
         self.logger.write('工具目录：%s' % core.ROOT_DIR)
         self._run_preflight()
         self.set_status('正在检测设备...')
-        self.refresh_devices(initial=True)
-        # 启动即渲染第一个模式，避免内容区空白等待用户点击
+        # 先渲染界面骨架（此时 device 尚为空），检测完成后再触发自动检测。
+        # 关键：不能在这里直接 show_mode 后依赖它自己检测——首次设备扫描是
+        # 异步的，show_mode 时 device 还是空的，会把"未检测到设备"当成结论，
+        # 造成"启动点开始检测没反应、必须手动刷新"的错觉。
+        # 改为：检测完成后由 _apply_devices 统一触发当前模式的 on_device_change。
         self.show_mode(MODES[0][0])
+        self.refresh_devices(initial=True)
 
     def _run_preflight(self):
         """启动自检：缺少 adb/fastboot/ksud 时明确告知，而不是静默失败。"""
@@ -151,6 +173,15 @@ class App(tk.Tk):
                background=[('disabled', '#b3d1ff'), ('pressed', C_ACCENT_DARK),
                            ('active', C_ACCENT_DARK)],
                foreground=[('disabled', '#f0f6ff')])
+        # ── 危险按钮：红色底 + 白字（卸载 / 清除等不可撤销操作） ──
+        st.configure('Danger.TButton', font=FONT_BOLD, padding=(14, 8), relief='flat',
+                     background=C_ERR, foreground='#ffffff',
+                     bordercolor=C_ERR, focuscolor=C_ERR,
+                     lightcolor=C_ERR, darkcolor=C_ERR)
+        st.map('Danger.TButton',
+               background=[('disabled', '#f5c2c2'), ('pressed', '#c62828'),
+                           ('active', '#c62828')],
+               foreground=[('disabled', '#fff5f5')])
 
         st.configure('TCheckbutton', background=C_PANEL, font=FONT,
                      focuscolor=C_PANEL)
@@ -285,20 +316,39 @@ class App(tk.Tk):
                                                        pady=(4, 0))
 
         # 设备状态指示（胶囊样式，浅底细描边）
-        def _pill(text, fg):
+        def _pill(text, fg, on_click=None):
             f = tk.Frame(head, bg='#f2f2f5', highlightbackground=C_BORDER,
                          highlightthickness=1)
             f.pack(side='right', padx=(8, 0), pady=(6, 0))
             l = tk.Label(f, text=text, bg='#f2f2f5', fg=fg,
                          font=('Microsoft YaHei UI', 9), padx=10, pady=4)
             l.pack()
-            return l
+            if on_click is not None:
+                # 可点击胶囊：手型光标 + 悬停高亮 + 点击回调
+                l.configure(cursor='hand2')
 
-        self.lbl_adb = _pill('● ADB 未连接', C_MUTED)
-        self.lbl_fb = _pill('● Fastboot 未连接', C_MUTED)
-        self.lbl_admin = _pill(
-            '● 管理员' if core.is_admin() else '● 普通用户',
-            C_OK if core.is_admin() else C_WARN)
+                def _enter(_e):
+                    l.configure(bg='#e6e6eb')
+                    f.configure(bg='#e6e6eb')
+
+                def _leave(_e):
+                    l.configure(bg='#f2f2f5')
+                    f.configure(bg='#f2f2f5')
+
+                l.bind('<Enter>', _enter)
+                l.bind('<Leave>', _leave)
+                l.bind('<Button-1>', lambda _e: on_click())
+            return l, f
+
+        self.lbl_adb, _ = _pill('● ADB 未连接', C_MUTED)
+        self.lbl_fb, _ = _pill('● Fastboot 未连接', C_MUTED)
+        # 权限指示灯：显示 Windows 侧是否以管理员运行。
+        # 措辞避免与"手机 Root"混淆，未提权时点击可直接触发 UAC 提权重启。
+        self._admin_ok = core.is_admin()
+        self.lbl_admin, self._admin_pill = _pill(
+            '● 管理员权限' if self._admin_ok else '● 未提权（点击提权）',
+            C_OK if self._admin_ok else C_WARN,
+            on_click=None if self._admin_ok else self.elevate)
 
         btn = tk.Button(head, text='刷新设备', command=self.refresh_devices,
                         bg=C_ACCENT, fg='#ffffff', activebackground=C_ACCENT_DARK,
@@ -480,7 +530,10 @@ class App(tk.Tk):
                     on, text = payload
                     self.lbl_busy.configure(text=text if on else '')
                 elif kind == 'devices':
-                    self._apply_devices(payload)
+                    try:
+                        self._apply_devices(payload)
+                    except Exception as exc:  # noqa: BLE001 - 单个模式处理失败不应阻断队列
+                        self._append_log('设备状态更新失败：%s' % exc, 'err')
                 elif kind == 'call':
                     # 后台线程请求在主线程执行 UI 操作（Tk 非线程安全）
                     try:
@@ -547,14 +600,29 @@ class App(tk.Tk):
     #  设备状态
     # -----------------------------------------------------------
     def refresh_devices(self, initial=False, on_done=None):
+        # 设备检测使用独立的设备代际：只被"更晚的设备刷新"取代，
+        # 不会被 show_mode 的模式切换作废（否则启动时会把自己的首次
+        # 检测结果丢掉，表现为"必须手动点刷新才检测得到"）。
+        self._dev_generation += 1
+        gen = self._dev_generation
+        self._dev_scanning = True
+
         def job(_ctl):
+            # 先确保 adb server 已启动：server 未运行时 adb devices 首次
+            # 自动拉起需数秒，且偶发因旧进程/端口占用失败，会表现为
+            # "手机已连接却检测不到"。显式 start-server 可消除这类漏检。
+            core.start_adb_server(self.runner)
             return core.detect_devices(self.runner)
 
         def done(st):
+            # 设备代际过期：已有更新的刷新发起，丢弃本次结果。
+            if gen != self._dev_generation:
+                return
+            self._dev_scanning = False
             self.device = st
             self._ui_queue.put(('devices', st))
             if not initial:
-                self.set_status('设备状态已刷新')
+                self.set_status('设备状态已刷新：%s' % st.describe())
             # on_done 由后台线程回调，需调度回主线程再执行。
             if on_done is not None:
                 self._ui_queue.put(('call', lambda: on_done(st)))
@@ -563,16 +631,21 @@ class App(tk.Tk):
         core.Task(job, on_done=done).start()
 
     def _apply_devices(self, st):
-        self.lbl_adb.configure(
-            text='● ADB 已连接' if st.adb else '● ADB 未连接',
-            fg=C_OK if st.adb else C_MUTED)
+        # recovery / sideload 状态（第三方 Recovery）下 adb 仍可用，
+        # 指示灯用不同文案与配色区分，避免用户误以为"未连接"。
+        if st.adb:
+            self.lbl_adb.configure(text='● ADB 已连接', fg=C_OK)
+        elif st.adb_recovery:
+            self.lbl_adb.configure(text='● ADB 已连接（Recovery）', fg=C_WARN)
+        else:
+            self.lbl_adb.configure(text='● ADB 未连接', fg=C_MUTED)
         self.lbl_fb.configure(
             text='● Fastboot 已连接' if st.fastboot else '● Fastboot 未连接',
             fg=C_OK if st.fastboot else C_MUTED)
 
         # 仅在连接状态真正变化时通知各模式。
         # 否则每次刷新都会触发一轮自动加载，导致任务被"已有任务在执行"挡掉。
-        sig = (st.adb, st.fastboot)
+        sig = (st.adb, st.fastboot, st.adb_recovery)
         if sig == self._last_device_sig:
             return
         self._last_device_sig = sig
@@ -592,6 +665,22 @@ class App(tk.Tk):
         if self._current_key == key and key in self._frames:
             return
 
+        # 切换模式即作废上一代：旧模式挂起的后台回调（on_done/on_error）
+        # 会因代际不符被丢弃，不会去写已 destroy 的控件，也不会误复位 _busy。
+        self._generation += 1
+        # 主动取消仍在跑的旧任务，尽早终止其 adb 子进程，避免切换后
+        # 后台残留任务继续占用设备、与新模式的检测争抢资源。
+        if self._current_task is not None:
+            try:
+                self._current_task.cancel()
+            except Exception:
+                pass
+            self.runner.cancel_current()
+        self._busy = False
+        self.set_busy_indicator(False)
+        self._set_cancel_state(False)
+        self._current_task = None
+
         self._highlight_nav(key)
 
         # 销毁当前内容区，并从缓存中剔除已销毁的 frame。
@@ -605,9 +694,8 @@ class App(tk.Tk):
         frame = self._create_frame(key)
         self._frames[key] = frame
         frame.pack(fill='both', expand=True)
-        # 有任务在跑时不触发自动加载，避免任务互相顶掉；
-        # 此时仅渲染界面骨架，用户可点该模式的刷新按钮手动加载。
-        if hasattr(frame, 'on_device_change') and not self._busy:
+        # 切换模式后自动加载：此前已作废旧任务，这里可安全触发。
+        if hasattr(frame, 'on_device_change'):
             frame.on_device_change(self.device)
         self.set_status('当前模式：%s' % dict((k, t) for k, t, _ in MODES)[key])
 
@@ -657,6 +745,11 @@ class App(tk.Tk):
             messagebox.showwarning('请稍候', '已有任务正在执行，请等待完成。')
             return
 
+        # 记录本任务的代际：切换模式或再次发起任务会自增代际，
+        # 使本任务迟到的回调失效。
+        self._generation += 1
+        gen = self._generation
+
         self._busy = True
         self._task_started = time.time()
         # 每次任务使用独立的计时基准，避免与 refresh_devices 等并发任务
@@ -671,6 +764,10 @@ class App(tk.Tk):
 
         def done(result):
             def apply():
+                # 代际已过期：说明用户已切换模式或发起了新任务，
+                # 本次回调属于"迟到的旧任务"，直接丢弃，不碰 UI、不复位 _busy。
+                if gen != self._generation:
+                    return
                 self._busy = False
                 self.set_busy_indicator(False)
                 self._set_cancel_state(False)
@@ -682,6 +779,8 @@ class App(tk.Tk):
 
         def err(exc):
             def apply():
+                if gen != self._generation:
+                    return
                 self._busy = False
                 self.set_busy_indicator(False)
                 self._set_cancel_state(False)
@@ -723,12 +822,83 @@ class App(tk.Tk):
     # -----------------------------------------------------------
     #  关闭
     # -----------------------------------------------------------
+    def elevate(self):
+        """以管理员权限重新启动程序（点击「未提权」胶囊时触发）。"""
+        if self._busy:
+            messagebox.showinfo('请稍候', '有任务正在执行，请等待任务结束后再提权。')
+            return
+        if not messagebox.askyesno(
+                '以管理员身份重启',
+                '部分操作（如识别 USB 设备、fastboot 刷写）需要管理员权限。\n\n'
+                '将重新启动本程序并弹出 UAC 提权确认框，当前窗口会关闭。\n'
+                '是否继续？'):
+            return
+        ok, msg = core.relaunch_as_admin()
+        if ok:
+            self.logger.write('已发起管理员提权重启，正在彻底退出当前实例')
+            self._shutdown_cleanup()
+            self._quit_process()
+        else:
+            messagebox.showwarning('提权未完成', msg)
+            self.logger.write('提权未完成：%s' % msg)
+
+    def _quit_process(self):
+        """彻底退出当前进程，避免留下无窗口的僵尸实例。
+
+        仅 destroy() 只销毁 Tk 窗口，并不保证进程退出：后台任务线程、
+        自循环的 after 轮询、以及被 ShellExecuteW 拉起后仍在的父进程
+        都可能让进程悬挂。提权重启场景尤其明显——旧实例不彻底退出，
+        用户就会看到"开了多个程序、旧的关不掉"。
+
+        这里先清除单实例登记（让新实例能立刻接管），再销窗口，
+        最后用 os._exit(0) 强制结束进程（不触发 atexit / 非守护线程 join）。
+        """
+        try:
+            import single_instance
+            single_instance.clear_registry()
+        except Exception:
+            pass
+        try:
+            self.destroy()
+        except Exception:
+            pass
+        try:
+            os._exit(0)
+        except Exception:
+            sys.exit(0)
+
     def on_close(self):
         if self._busy:
             if not messagebox.askyesno('确认退出', '仍有任务在执行，确定要退出吗？'):
                 return
         self.logger.write('用户关闭程序')
+        # 退出前收尾：单文件 exe 退出时 PyInstaller 要删除临时解包目录
+        # （%TEMP%\_MEIxxxxxx），而常驻的 adb server 会占用从该目录加载的
+        # adb.exe，导致删除失败并弹出 "Failed to remove temporary directory"。
+        # 先关掉 adb server 并回收子进程，可避免该警告。
+        self._shutdown_cleanup()
+        # 清除单实例登记，否则下次启动可能误判"仍有实例在运行"
+        # （例如旧实例被强杀、登记文件残留时）。
+        try:
+            import single_instance
+            single_instance.clear_registry()
+        except Exception:
+            pass
         self.destroy()
+
+    def _shutdown_cleanup(self):
+        """退出清理：结束 adb server 与仍在运行的子进程。"""
+        self.logger.write('正在清理 adb server 与后台子进程...')
+        try:
+            # kill-server 会终止常驻 adb 进程，释放对 _MEI 目录内 adb.exe 的占用。
+            self.runner.run(['adb', 'kill-server'], quiet=True, timeout=8)
+        except Exception as exc:
+            self.logger.write('清理 adb server 失败：%s' % exc)
+        # 兜底：若仍有本工具启动的子进程残存，直接回收。
+        try:
+            self.runner.cancel_current()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------
@@ -901,20 +1071,138 @@ def widget_alive(widget):
 
 
 def require_adb(app, silent=False):
-    """需要 ADB 前置检查，返回 True 表示可用。"""
-    if not app.device.adb:
-        if not silent:
+    """需要 ADB 前置检查，返回 True 表示可用。
+
+    recovery / sideload 状态（第三方 Recovery）下 adb 命令仍可用，一并放行。
+    """
+    st = app.device
+    if st.adb or st.adb_recovery:
+        return True
+    if not silent:
+        if st.adb_devices:
+            states = '、'.join('%s(%s)' % (sn, s) for sn, s in st.adb_devices)
+            messagebox.showwarning(
+                '设备未就绪',
+                '已检测到设备但尚未就绪：%s\n\n'
+                '请在手机上点击「允许 USB 调试」后重试。' % states)
+        else:
             messagebox.showwarning('未连接设备',
                                    '未检测到 ADB 设备。\n请连接手机、开启 USB 调试并授权后重试。')
-        return False
-    return True
+    return False
 
 
-def require_root(app, runner, silent=False):
-    """探测 Root；不可用时提示。"""
+def require_root(runner, silent=False):
+    """探测 Root；不可用时提示。返回 True 表示已获取 Root。
+
+    注意：探测必须在后台线程做（adb get-state 最长阻塞 15 秒），
+    故本函数只应在 run_task 的 job 内调用，不要在主线程直接调用。
+    """
     if core.is_root(runner):
         return True
     if not silent:
         messagebox.showwarning('未获取 Root',
                                '当前未获取 Root 权限。\n请先执行模式 2 或模式 3 完成提权。')
     return False
+
+
+def confirm(title, message, parent=None):
+    """统一的二次确认弹窗；返回 True 表示用户确认。
+
+    各模式大量使用 messagebox.askyesno，集中封装便于统一文案风格
+    （如需统一"危险操作"红色图标或默认按钮，只改此处）。
+    """
+    return bool(messagebox.askyesno(title, message, parent=parent))
+
+
+def dark_text(parent, mono=True, height=None, hscroll=False):
+    """构建深色只读文本预览区（日志 / 备份预览共用）。
+
+    返回 (外框, Text)。外框已含竖向滚动条；hscroll=True 时再附加横向滚动条。
+    Text 处于 disabled 状态，写入需先置 normal（见 set_dark_text）。
+    """
+    box = tk.Frame(parent, bg='#1c1c1e', highlightbackground='#2c2c2e',
+                   highlightthickness=1)
+    kw = {}
+    if height:
+        kw['height'] = height
+    text = tk.Text(box, bg='#1c1c1e', fg='#e5e5ea',
+                   font=FONT_MONO if mono else FONT,
+                   bd=0, wrap='none', state='disabled', padx=10, pady=8,
+                   selectbackground='#0a84ff', **kw)
+    vs = ttk.Scrollbar(box, orient='vertical', command=text.yview)
+    text.configure(yscrollcommand=vs.set)
+    vs.pack(side='right', fill='y')
+    if hscroll:
+        hs = ttk.Scrollbar(box, orient='horizontal', command=text.xview)
+        text.configure(xscrollcommand=hs.set)
+        hs.pack(side='bottom', fill='x')
+    text.pack(side='left', fill='both', expand=True)
+    return box, text
+
+
+def set_dark_text(text, content):
+    """向 dark_text 创建的只读 Text 写入内容（临时切回 normal 再置回 disabled）。"""
+    text.configure(state='normal')
+    text.delete('1.0', 'end')
+    if content:
+        text.insert('end', content)
+    text.configure(state='disabled')
+
+
+def ops(parent, *buttons):
+    """构建一排「操作」按钮，返回统一的启用/禁用控制器。
+
+    buttons 为 (按钮, 变体名) 二元组序列；变体名可取 'danger'（危险操作，
+    红色样式）、'primary'（主操作，强调样式）、'plain'（默认，普通样式）。
+    返回 set_enabled(**flags)：按变体名批量启用，未列出的变体保持禁用。
+    例如 ops(bar, (btn_disable, 'danger'), (btn_enable, 'plain'))
+    之后调用 ctl.set_enabled(danger=True) 即只亮起危险按钮。
+    """
+    style_of = {'danger': 'Danger.TButton', 'primary': 'Accent.TButton',
+                'plain': 'TButton'}
+    made = []
+    for btn, variant in buttons:
+        btn.configure(style=style_of.get(variant, 'TButton'))
+        btn.pack(side='left', padx=(0, 8), pady=4)
+        btn.state(['disabled'])
+        made.append((variant, btn))
+
+    def set_enabled(**flags):
+        for variant, btn in made:
+            btn.state(['!disabled'] if flags.get(variant) else ['disabled'])
+
+    return set_enabled
+
+
+def tree3(parent, columns, headers, widths, height=None, style=None,
+          stretch=None, select=None):
+    """构建带竖向滚动条的多列 Treeview（表头 + 列宽/对齐 + 滚轮）。
+
+    columns：列 id 序列；headers：表头文字序列（与 columns 等长）；
+    widths：(列宽, 最小宽, 对齐) 三元组序列，"对齐" 取 'w'/'center'/'e'；
+    stretch：各列是否吸收剩余空间，None 表示除末列外均不拉伸（末列拉伸）；
+    select：选中回调，传入后自动绑定 <<TreeviewSelect>>。
+    返回 (外框, Treeview)。外框已含竖向滚动条，调用方 pack 外框即可。
+    """
+    n = len(columns)
+    if stretch is None:
+        stretch = [i == n - 1 for i in range(n)]
+    kw = {}
+    if height:
+        kw['height'] = height
+    if style:
+        kw['style'] = style
+    box = tk.Frame(parent, bg=C_PANEL)
+    tree = ttk.Treeview(box, columns=columns, show='headings', **kw)
+    for i, col in enumerate(columns):
+        w, minw, anchor = widths[i]
+        tree.heading(col, text=headers[i])
+        tree.column(col, width=w, minwidth=minw, anchor=anchor,
+                    stretch=bool(stretch[i]))
+    vs = ttk.Scrollbar(box, orient='vertical', command=tree.yview)
+    tree.configure(yscrollcommand=vs.set)
+    vs.pack(side='right', fill='y')
+    tree.pack(side='left', fill='both', expand=True)
+    if select:
+        tree.bind('<<TreeviewSelect>>', select)
+    return box, tree

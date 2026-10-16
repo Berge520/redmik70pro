@@ -116,7 +116,7 @@ class SafeModeFrame(tk.Frame):
     def enter_safe_mode(self):
         if not ui.require_adb(self.app):
             return
-        if not messagebox.askyesno(
+        if not ui.confirm(
                 '确认写入安全模式标记',
                 '将向设备写入 KernelSU 安全模式标记。\n'
                 '重启后所有模块都不会加载，便于卸载问题模块。\n\n是否继续？'):
@@ -173,7 +173,7 @@ class SafeModeFrame(tk.Frame):
     def exit_safe_mode(self):
         if not ui.require_adb(self.app):
             return
-        if not messagebox.askyesno(
+        if not ui.confirm(
                 '确认退出安全模式',
                 '将删除所有安全模式标记，恢复正常模块加载。\n\n'
                 '请确认问题模块已卸载，否则可能导致再次无法开机。\n是否继续？'):

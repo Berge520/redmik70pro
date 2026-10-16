@@ -121,7 +121,7 @@ class SelinuxFrame(tk.Frame):
             return
 
         target = 'Enforcing（强制）' if enforcing else 'Permissive（宽松）'
-        if not messagebox.askyesno('确认切换', '确定要切换 SELinux 为 %s 吗？' % target):
+        if not ui.confirm('确认切换', '确定要切换 SELinux 为 %s 吗？' % target):
             return
 
         def job(_ctl):
@@ -155,7 +155,7 @@ class SelinuxFrame(tk.Frame):
                 return
             mode, ok = result if result else ('adb', False)
             if mode == 'fastboot' and ok:
-                if messagebox.askyesno(
+                if ui.confirm(
                         '继续启动',
                         'SELinux 参数已下发，是否现在执行 fastboot continue 启动系统？'):
                     def cont(_ctl):

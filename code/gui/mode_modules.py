@@ -29,32 +29,22 @@ class ModulesFrame(tk.Frame):
         bar.pack(fill='x')
         ui.button(bar, '刷新模块列表', self.refresh, accent=True)
         self.btn_disable = ttk.Button(bar, text='禁用选中模块', command=self.disable)
-        self.btn_disable.pack(side='left', padx=(0, 8), pady=4)
-        self.btn_disable.state(['disabled'])
         self.btn_enable = ttk.Button(bar, text='启用选中模块', command=self.enable)
-        self.btn_enable.pack(side='left', padx=(0, 8), pady=4)
-        self.btn_enable.state(['disabled'])
         self.btn_uninstall = ttk.Button(bar, text='卸载选中模块', command=self.uninstall)
-        self.btn_uninstall.pack(side='left', padx=(0, 8), pady=4)
-        self.btn_uninstall.state(['disabled'])
+        self._set_ops = ui.ops(bar, (self.btn_disable, 'plain'),
+                               (self.btn_enable, 'plain'),
+                               (self.btn_uninstall, 'danger'))
         ui.button(bar, '复制模块名', self.copy_name)
 
         self.lbl_count = ttk.Label(inner, text='', style='Muted.TLabel')
         self.lbl_count.pack(anchor='w', pady=(8, 0))
 
         cols = ('folder', 'name', 'state')
-        self.tree = ttk.Treeview(inner, columns=cols, show='headings')
-        self.tree.heading('folder', text='模块文件夹名')
-        self.tree.heading('name', text='显示名称')
-        self.tree.heading('state', text='状态')
-        self.tree.column('folder', width=250, minwidth=150, anchor='w', stretch=False)
-        self.tree.column('name', width=400, minwidth=180, anchor='w', stretch=True)
-        self.tree.column('state', width=90, minwidth=70, anchor='center', stretch=False)
-        vsb = ttk.Scrollbar(inner, orient='vertical', command=self.tree.yview)
-        self.tree.configure(yscrollcommand=vsb.set)
-        vsb.pack(side='right', fill='y', pady=(8, 0))
-        self.tree.pack(side='left', fill='both', expand=True, pady=(8, 0))
-        self.tree.bind('<<TreeviewSelect>>', self._on_select)
+        box, self.tree = ui.tree3(
+            inner, cols, ('模块文件夹名', '显示名称', '状态'),
+            ((250, 150, 'w'), (400, 180, 'w'), (90, 70, 'center')),
+            select=self._on_select)
+        box.pack(fill='both', expand=True, pady=(8, 0))
         # 状态列配色：已禁用=橙，待删除=红
         self.tree.tag_configure('disabled', foreground=ui.C_WARN)
         self.tree.tag_configure('removed', foreground=ui.C_ERR)
@@ -78,18 +68,13 @@ class ModulesFrame(tk.Frame):
     def _on_select(self, _event):
         sel = self.tree.selection()
         if not sel:
-            self._set_ops(False, False, False)
+            self._set_ops()
             return
         state = self.tree.item(sel[0], 'values')[2]
         # 按当前状态给出可执行的操作：已禁用只能启用，正常只能禁用，
         # 待删除模块两种都不给（等重启由管理器清理）。
-        self._set_ops(state == '已启用', state == '已禁用', state != '待删除')
-
-    def _set_ops(self, can_disable, can_enable, can_uninstall):
-        for btn, ok in ((self.btn_disable, can_disable),
-                        (self.btn_enable, can_enable),
-                        (self.btn_uninstall, can_uninstall)):
-            btn.state(['!disabled'] if ok else ['disabled'])
+        self._set_ops(plain=state in ('已启用', '已禁用'),
+                      danger=state != '待删除')
 
     def _selected_folder(self):
         sel = self.tree.selection()
@@ -184,7 +169,7 @@ class ModulesFrame(tk.Frame):
         act = '启用' if enable else '禁用'
         detail = ('将删除 disable 标记，重启后恢复加载。'
                   if enable else '将写入 disable 标记，文件保留、重启后不再加载，可随时启用。')
-        if not messagebox.askyesno(
+        if not ui.confirm(
                 '确认%s' % act,
                 '确定要%s模块 [%s] 吗？\n\n%s' % (act, folder, detail)):
             return
@@ -229,7 +214,7 @@ class ModulesFrame(tk.Frame):
             self.app.log_out('[拒绝卸载] 模块名不合法：%s' % folder)
             return
 
-        if not messagebox.askyesno(
+        if not ui.confirm(
                 '确认卸载',
                 '确定要彻底删除模块吗？\n\n'
                 '  模块名：%s\n'

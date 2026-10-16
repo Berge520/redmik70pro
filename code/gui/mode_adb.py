@@ -190,7 +190,7 @@ class AdbFrame(tk.Frame):
 
         # 这是全程序最危险的入口：任意命令会直接下发到设备执行。
         # 即便用户已在输入框确认过，仍要求二次确认，避免误触或粘贴错误。
-        if not messagebox.askyesno(
+        if not ui.confirm(
                 '确认执行命令',
                 '即将在设备上以以下命令执行：\n\n%s\n\n'
                 '命令会直接下发到设备，执行后无法撤销。确认继续吗？' % cmd,

@@ -71,9 +71,6 @@ class LinksFrame(tk.Frame):
             side='right', padx=12, pady=10)
 
     # -----------------------------------------------------------
-    def on_device_change(self, st):
-        pass
-
     def _open(self, url):
         try:
             webbrowser.open(url)

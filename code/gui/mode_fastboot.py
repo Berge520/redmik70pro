@@ -63,6 +63,10 @@ class FastbootFrame(tk.Frame):
                                                                   pady=(2, 0))
 
         # ── 旧版 KernelSU 补充流程（默认折叠）──
+        self._build_legacy_steps(inner)
+
+    def _build_legacy_steps(self, inner):
+        """构建「旧版 KernelSU 流程（步骤 4~7）」折叠区。"""
         fold = ui.collapsible(inner, '旧版 KernelSU 流程（步骤 4~7）',
                               expanded=False, hint='新版通常无需')
         leg = tk.Frame(fold, bg=ui.C_PANEL)
@@ -280,7 +284,7 @@ class FastbootFrame(tk.Frame):
 
     # -----------------------------------------------------------
     def do_all(self):
-        if not messagebox.askyesno(
+        if not ui.confirm(
                 '确认一键流程',
                 '将依次执行：\n'
                 '  1. 重启进入 Fastboot\n'

@@ -49,16 +49,8 @@ class BackupFrame(tk.Frame):
 
         # 内容预览
         ui.section(inner, '备份内容预览')
-        box = tk.Frame(inner, bg='#1c1c1e', highlightbackground='#2c2c2e',
-                       highlightthickness=1)
+        box, self.preview = ui.dark_text(inner)
         box.pack(fill='both', expand=True)
-        self.preview = tk.Text(box, bg='#1c1c1e', fg='#e5e5ea', font=ui.FONT_MONO,
-                               bd=0, wrap='none', state='disabled', padx=10, pady=8,
-                               selectbackground='#0a84ff')
-        vs = ttk.Scrollbar(box, orient='vertical', command=self.preview.yview)
-        self.preview.configure(yscrollcommand=vs.set)
-        vs.pack(side='right', fill='y')
-        self.preview.pack(side='left', fill='both', expand=True)
 
         self.refresh_info()
 
@@ -85,11 +77,7 @@ class BackupFrame(tk.Frame):
             self._set_preview('')
 
     def _set_preview(self, text):
-        self.preview.configure(state='normal')
-        self.preview.delete('1.0', 'end')
-        if text:
-            self.preview.insert('end', text)
-        self.preview.configure(state='disabled')
+        ui.set_dark_text(self.preview, text)
 
     def _load_preview(self):
         try:
@@ -103,7 +91,7 @@ class BackupFrame(tk.Frame):
         if not ui.require_adb(self.app):
             return
         if os.path.isfile(self.backup_path):
-            if not messagebox.askyesno(
+            if not ui.confirm(
                     '覆盖备份',
                     '已存在备份文件：\n%s\n\n是否覆盖？' % self.backup_path):
                 return

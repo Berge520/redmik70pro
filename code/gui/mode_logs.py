@@ -65,23 +65,10 @@ class LogFrame(tk.Frame):
         right.pack(side='left', fill='both', expand=True, padx=(10, 0))
         tk.Label(right, text='日志内容', bg=ui.C_PANEL, fg=ui.C_TEXT,
                  font=ui.FONT_BOLD).pack(anchor='w', pady=(0, 4))
-        box = tk.Frame(right, bg='#1c1c1e', highlightbackground='#2c2c2e',
-                       highlightthickness=1)
+        box, self.text = ui.dark_text(right, hscroll=True)
         box.pack(fill='both', expand=True)
-        self.text = tk.Text(box, bg='#1c1c1e', fg='#e5e5ea', font=ui.FONT_MONO,
-                            bd=0, wrap='none', state='disabled',
-                            padx=10, pady=8, selectbackground='#0a84ff')
-        vs = ttk.Scrollbar(box, orient='vertical', command=self.text.yview)
-        hs = ttk.Scrollbar(box, orient='horizontal', command=self.text.xview)
-        self.text.configure(yscrollcommand=vs.set, xscrollcommand=hs.set)
-        vs.pack(side='right', fill='y')
-        hs.pack(side='bottom', fill='x')
-        self.text.pack(side='left', fill='both', expand=True)
 
         self.refresh()
-
-    def on_device_change(self, st):
-        pass
 
     # -----------------------------------------------------------
     def refresh(self):
@@ -102,11 +89,8 @@ class LogFrame(tk.Frame):
             self._show(self._files[idx])
 
     def _set_text(self, content):
-        self.text.configure(state='normal')
-        self.text.delete('1.0', 'end')
-        self.text.insert('end', content)
+        ui.set_dark_text(self.text, content)
         self.text.see('end')
-        self.text.configure(state='disabled')
 
     def _show(self, path):
         try:
@@ -136,7 +120,7 @@ class LogFrame(tk.Frame):
 
     # -----------------------------------------------------------
     def cleanup(self):
-        if not messagebox.askyesno(
+        if not ui.confirm(
                 '确认清理',
                 '将删除 %d 天以前的日志文件。\n\n是否继续？' % KEEP_DAYS):
             return
@@ -170,7 +154,7 @@ class LogFrame(tk.Frame):
             messagebox.showinfo('无需清除', '没有可删除的历史日志文件。')
             return
 
-        if not messagebox.askyesno(
+        if not ui.confirm(
                 '确认清除全部',
                 '将删除全部 %d 个历史日志文件（不含本次会话日志）。\n\n'
                 '此操作不可撤销，是否继续？' % len(targets)):
