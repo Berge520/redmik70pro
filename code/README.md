@@ -26,7 +26,7 @@ code/
 │  ├─ mode_fastboot.py        模式 3   Fastboot 分区提权（分步 + 一键）
 │  ├─ mode_selinux.py         模式 4   SELinux 模式切换
 │  ├─ mode_modules.py         模式 5   Root 模块管理
-│  ├─ mode_zygisk.py          模式 6   Zygisk 崩溃修复 + Vector 一键激活
+│  ├─ mode_zygisk.py          模式 6   Zygisk 崩溃修复 + Zygisk / Xposed 一键激活
 │  ├─ mode_safemode.py        模式 7   KernelSU 安全模式自救
 │  ├─ mode_backup.py          模式 8   模块列表备份恢复
 │  ├─ mode_logs.py            模式 9   查看运行日志
@@ -40,7 +40,11 @@ code/
 │  ├─ AdbWinUsbApi.dll        adb.exe 依赖
 │  ├─ libwinpthread-1.dll     fastboot.exe 依赖
 │  ├─ ksud                    KernelSU 提权载荷（push 至设备执行）
-│  └─ fix_lspd.sh             LSPosed / zygiskd 重新注入修复脚本
+│  ├─ fix_zygisk.sh           通用注入修复脚本（运行时自动识别 NeoZygisk / Zygisk Next 并分派）
+│  ├─ fix_neozygisk.sh        NeoZygisk 专用注入修复脚本（命令按 zygisk-ptrace64 monitor 硬编码）
+│  ├─ fix_zygisknext.sh       Zygisk Next 专用注入修复脚本（命令按 ./bin/zygiskd daemon 硬编码）
+│  ├─ fix_lspd.sh             fix_neozygisk.sh 的历史别名（逻辑等价，保留仅供兼容）
+│  └─ verify_vector.sh        Vector 模块生效验证（只读：vectord/模块清单/hook 实证/作用域）
 ├─ packaging/                 打包配置
 │  ├─ RootTool.spec           PyInstaller 打包脚本（生成免安装 exe）
 │  └─ brand.ico               打包用应用图标（由 branding.py 生成）
@@ -158,13 +162,13 @@ python gui\roottool.pyw
 | 3 | Fastboot 分区提权（分步 + 一键） | Fastboot 模式 |
 | 4 | SELinux 模式切换（Permissive / Enforcing） | ADB + Root，或 Fastboot |
 | 5 | Root 模块管理（查看 / 禁用 / 启用 / 卸载） | ADB + Root |
-| 6 | Zygisk 崩溃修复向导 + Vector 一键激活 | ADB + Root |
+| 6 | Zygisk 崩溃修复向导 + Zygisk / Xposed 一键激活（自动识别 NeoZygisk / Zygisk Next） | ADB + Root |
 | 7 | KernelSU 安全模式自救（进入 / 退出） | ADB + Root |
 | 8 | 模块列表备份与恢复 | ADB + Root |
 | 9 | 查看运行日志 | 无 |
 | 10 | Xposed 模块管理（Vector / LSPosed / 原始） | ADB + Root |
 | 11 | 重启控制（软重启 / 完整重启 / Recovery / Fastboot / 关机） | ADB 已连接 |
-| 12 | 相关链接（本项目 / KernelSU / Zygisk Next / Vector 仓库） | 无 |
+| 12 | 相关链接（本项目 / KernelSU / NeoZygisk / Vector 仓库） | 无 |
 
 ---
 

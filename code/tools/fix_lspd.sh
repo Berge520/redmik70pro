@@ -1,204 +1,106 @@
 #!/system/bin/sh
-# v8: 直接调用zygiskd重新注入 + lspd + 正确的zygote重启
+# Zygisk 注入修复脚本 —— NeoZygisk 专用版 · 历史文件名 fix_lspd.sh
+#
+# 说明：本文件是 fix_neozygisk.sh 的历史别名，二者内容等价。
+#       名称中的 "lspd" 源自早期 LSPosed 时代，与当前逻辑无关；
+#       保留该文件名仅为兼容既有文档与附件包。新用法请优先用 fix_neozygisk.sh。
+#
+# 用途：重越狱（late-load）后，KernelSU 不会重放 post-fs-data 事件，
+#       NeoZygisk 的 monitor 需要手动补启动，并触发 zygote 重建让它注入。
+#
+# ┌─ 三个脚本的关系（模块 ID 同为 zygisksu，NeoZygisk 与 Zygisk Next 只能装其一）─┐
+# │  fix_zygisk.sh      通用版：运行时自动识别框架，再走对应分支（推荐，最省心） │
+# │  fix_neozygisk.sh   NeoZygisk 专用版（本脚本的正名）                      │
+# │  fix_zygisknext.sh  Zygisk Next 专用版                                    │
+# │  fix_lspd.sh        本脚本文件名（NeoZygisk 专用版的历史别名）            │
+# └──────────────────────────────────────────────────────────────────────────┘
+#
+# NeoZygisk 特征：
+#   · 入口 bin/zygisk-ptrace64（子命令 monitor / trace / ctl / version）
+#   · 常驻进程名即 zygisk-ptrace64；运行时目录 /data/adb/neozygisk
+#   · 无 zn-daemon、无 zygiskd daemon/service-stage
+#   · ★ 必须以模块目录 $MODDIR 为 CWD 启动，否则相对路径（./module.prop、
+#     ./bin/zygiskd64、./lib64/libzygisk.so）全部失效，monitor 会立刻 exit=1
+#   · 注入判据：zygote64 的 /proc/<pid>/maps 能 grep 到 libzygisk.so
+#
+# 用法：
+#   adb push code/tools/fix_lspd.sh /data/local/tmp/
+#   adb shell su -c "sh /data/local/tmp/fix_lspd.sh"
+#   （或改用 fix_neozygisk.sh / 通用版 fix_zygisk.sh，用法相同）
+
 PATH=/system/bin:/vendor/bin:/data/adb/ksu/bin:$PATH
 export PATH
 
-MODDIR="/data/adb/modules/zygisk_lsposed"
-LOGDIR="/data/adb/lspd/log"
-ZYGISKDIR="/data/adb/modules/zygisksu"
+MODDIR=/data/adb/modules/zygisksu
+TMP_PATH=/data/adb/neozygisk
+MON_LOG=/data/local/tmp/monitor.log
 
-echo "[1] 杀掉旧lspd..."
-for PID in $(ps -A -o PID,NAME 2>/dev/null | grep 'lspd' | awk '{print $1}'); do
-    kill -9 "$PID" 2>/dev/null
-    echo "  killed $PID"
-done
+echo "########## NeoZygisk 注入修复（专用版 · 历史文件名 fix_lspd.sh）##########"
+
+# ── [0] 前置校验：确认装的是 NeoZygisk ──
+if [ ! -x "$MODDIR/bin/zygisk-ptrace64" ] && [ ! -d "$TMP_PATH" ]; then
+    echo "ERROR: 未检测到 NeoZygisk（既无 $MODDIR/bin/zygisk-ptrace64 也无 $TMP_PATH）"
+    echo "       若设备装的是 Zygisk Next，请改用 fix_zygisknext.sh，"
+    echo "       或使用通用版 fix_zygisk.sh（自动识别）。"
+    exit 1
+fi
+
+echo "===== [1] 清理旧 monitor 与脏 socket ====="
+# 按精确进程名清理（-x），避免 -f 命中本脚本/调用命令自身。
+pkill -x zygisk-ptrace64 2>/dev/null
 sleep 1
+rm -f "$TMP_PATH/init_monitor"
 
-echo "[2] 获取zygote环境变量..."
-ZPID=$(ps -A -o PID,NAME 2>/dev/null | grep 'zygote64' | awk '{print $1}' | head -1)
-if [ -z "$ZPID" ]; then
-    echo "ERROR: 找不到zygote64"; exit 1
-fi
-BOOTCP=$(cat /proc/$ZPID/environ 2>/dev/null | tr '\0' '\n' | grep '^BOOTCLASSPATH=' | head -1)
-DEX2OAT=$(cat /proc/$ZPID/environ 2>/dev/null | tr '\0' '\n' | grep '^DEX2OATBOOTCLASSPATH=' | head -1)
-if [ -z "$BOOTCP" ]; then
-    echo "ERROR: 无法获取BOOTCLASSPATH"; exit 1
-fi
-echo "  BOOTCLASSPATH (${#BOOTCP} chars)"
-
-echo "[3] 重新注入ZygiskSU..."
-echo "  当前zygote64 PID=$ZPID"
-
-# 直接运行zygiskd daemon (从zygisksu模块目录)
-cd "$ZYGISKDIR" || { echo "ERROR: 无法进入ZygiskSU目录"; exit 1; }
-echo "  运行 zygiskd daemon..."
-./bin/zygiskd daemon 2>&1 &
-ZYGISKD_PID=$!
+echo "===== [2] 以 \$MODDIR 为 CWD 启动 monitor（★ cd 不能少）====="
+cd "$MODDIR" || { echo "ERROR: 无法进入 $MODDIR"; exit 1; }
+export TMP_PATH
+nohup ./bin/zygisk-ptrace64 monitor > "$MON_LOG" 2>&1 &
 sleep 3
 
-echo "  zygiskd 进程:"
-ps -A -o PID,NAME 2>/dev/null | grep -i 'zygisk'
-echo "  native_bridge: $(getprop ro.dalvik.vm.native.bridge 2>/dev/null)"
+echo "  monitor 进程:"
+ps -A -o PID,CMDLINE 2>/dev/null | grep zygisk-ptrace | grep -v grep
+echo "  monitor.log:"
+cat "$MON_LOG" 2>/dev/null
 
-echo "[4] 运行 zygiskd service-stage..."
-./bin/zygiskd service-stage 2>&1 &
-sleep 2
+echo "===== [3] 触发 zygote 重建，让 monitor seize 并注入 ====="
+# 记录旧 PID（用 pidof 精确匹配 zygote64，避免误伤 webview_zygote）。
+OLD_ZG=$(pidof zygote64)
+echo "  旧 zygote64 PID=${OLD_ZG:-(无)}"
+# ⚠️ 按 PID 精确 kill：zygote64 的进程名(comm)是 "main"，`pkill -x zygote64`
+#    匹配不到、`pkill -x main` 又会误杀一片；故统一按 PID 杀。
+KILL_PIDS="$OLD_ZG $(pidof zygote)"
+[ -n "$KILL_PIDS" ] && kill -9 $KILL_PIDS 2>/dev/null
 
-echo "[5] 清理旧状态..."
-rm -f /data/adb/lspd/monitor 2>/dev/null
-rm -f /data/adb/lspd/lock 2>/dev/null
-
-echo "[6] 记录旧system_server..."
-OLD_SS=$(ps -A -o PID,NAME 2>/dev/null | grep 'system_server' | awk '{print $1}' | head -1)
-echo "  旧SS PID=${OLD_SS:-(无)}"
-
-echo "[7] setsid启动lspd..."
-java_options="-Djava.class.path=$MODDIR/daemon.apk -Xnoimage-dex2oat"
-setsid nsenter -t 1 -m -- /system/bin/sh -c "
-    cd $MODDIR
-    export $BOOTCP
-    export $DEX2OAT
-    export PATH=$PATH
-    exec /system/bin/app_process $java_options /system/bin --nice-name=lspd org.lsposed.lspd.Main
-" </dev/null >/dev/null 2>&1 &
-sleep 3
-
-LSPD_PID=$(ps -A -o PID,NAME 2>/dev/null | grep 'lspd' | awk '{print $1}' | head -1)
-if [ -z "$LSPD_PID" ]; then
-    echo "ERROR: lspd未启动!"; exit 1
-fi
-echo "  lspd PID=$LSPD_PID"
-
-echo "[8] 等lspd初始化 (5s)..."
-sleep 5
-LSPD_PID=$(ps -A -o PID,NAME 2>/dev/null | grep 'lspd' | awk '{print $1}' | head -1)
-if [ -z "$LSPD_PID" ]; then
-    echo "ERROR: lspd崩溃!"; exit 1
-fi
-echo "  lspd 存活"
-
-echo "=== 杀zygote64 ==="
-ZPID=$(ps -A -o PID,NAME 2>/dev/null | grep 'zygote64' | awk '{print $1}' | head -1)
-echo "[9] 杀 zygote64 PID=$ZPID"
-kill -9 "$ZPID"
-
-echo "[10] 等旧SS死亡..."
-if [ -n "$OLD_SS" ]; then
-    for i in $(seq 1 15); do
-        sleep 1
-        if ! kill -0 "$OLD_SS" 2>/dev/null; then
-            echo "  旧SS已死 (${i}s)"
-            break
-        fi
-    done
-fi
-
-echo "[11] 等新system_server (PID != $OLD_SS)..."
-SSPID=""
+NEW_ZG=""
 for i in $(seq 1 30); do
     sleep 1
-    NEW_SS=$(ps -A -o PID,NAME 2>/dev/null | grep 'system_server' | awk '{print $1}' | head -1)
-    if [ -n "$NEW_SS" ] && [ "$NEW_SS" != "$OLD_SS" ]; then
-        SSPID="$NEW_SS"
-        echo "  新SS PID=$SSPID (${i}s)"
+    NOW=$(pidof zygote64)
+    if [ -n "$NOW" ] && [ "$NOW" != "$OLD_ZG" ]; then
+        NEW_ZG="$NOW"
+        echo "  新 zygote64 PID=$NEW_ZG (${i}s)"
         break
     fi
 done
-if [ -z "$SSPID" ]; then
-    echo "ERROR: 新system_server未启动"; exit 1
+if [ -z "$NEW_ZG" ]; then
+    echo "WARNING: 未检测到 zygote64 重建（PID 未变化）"
 fi
 
-echo "[12] 检查ZygiskSU是否注入新zygote..."
-NEW_ZPID=$(ps -A -o PID,NAME 2>/dev/null | grep 'zygote64' | awk '{print $1}' | head -1)
-echo "  新zygote64 PID=$NEW_ZPID"
-echo "  zygiskd进程: $(ps -A -o PID,NAME | grep -i zygisk)"
-echo "  native_bridge: $(getprop ro.dalvik.vm.native.bridge)"
-
-echo "[13] 等bridge建立 (最多60s)..."
-BRIDGE_OK=""
-for i in $(seq 1 60); do
-    sleep 1
-    LATEST=$(ls -t $LOGDIR/verbose_*.log 2>/dev/null | head -1)
-    if [ -n "$LATEST" ]; then
-        BRIDGE_OK=$(grep "binder received" "$LATEST" 2>/dev/null | grep "$SSPID" | tail -1)
-        if [ -n "$BRIDGE_OK" ]; then
-            echo "  bridge建立! (${i}s)"
-            echo "  $BRIDGE_OK"
-            break
-        fi
-    fi
-    if [ $((i % 10)) -eq 0 ]; then
-        LSPD_PID=$(ps -A -o PID,NAME 2>/dev/null | grep 'lspd' | awk '{print $1}' | head -1)
-        echo "  等待中 (${i}s) lspd=${LSPD_PID:-DEAD}"
-    fi
-done
-
-if [ -z "$BRIDGE_OK" ]; then
-    echo "WARNING: bridge未建立"
-    echo "  可能ZygiskSU未成功注入新zygote"
-    echo "--- 最后15行日志 ---"
-    LATEST=$(ls -t $LOGDIR/verbose_*.log 2>/dev/null | head -1)
-    [ -n "$LATEST" ] && tail -15 "$LATEST"
-    
-    echo ""
-    echo "--- 尝试方案B: 杀system_server让zygote重新fork ---"
-    echo "  杀 system_server PID=$SSPID"
-    kill -9 "$SSPID"
-    sleep 3
-    
-    SSPID2=""
-    for i in $(seq 1 20); do
-        sleep 1
-        SSPID2=$(ps -A -o PID,NAME 2>/dev/null | grep 'system_server' | awk '{print $1}' | head -1)
-        if [ -n "$SSPID2" ] && [ "$SSPID2" != "$SSPID" ]; then
-            echo "  新SS PID=$SSPID2 (${i}s)"
-            break
-        fi
-    done
-    
-    if [ -n "$SSPID2" ]; then
-        echo "  等bridge (30s)..."
-        for i in $(seq 1 30); do
-            sleep 1
-            LATEST=$(ls -t $LOGDIR/verbose_*.log 2>/dev/null | head -1)
-            if [ -n "$LATEST" ]; then
-                BRIDGE_OK=$(grep "binder received" "$LATEST" 2>/dev/null | grep "$SSPID2" | tail -1)
-                if [ -n "$BRIDGE_OK" ]; then
-                    echo "  方案B bridge建立! (${i}s)"
-                    echo "  $BRIDGE_OK"
-                    SSPID="$SSPID2"
-                    break
-                fi
-            fi
-        done
-    fi
-fi
-
-echo "[14] 等稳定 (15s)..."
-sleep 15
-
-echo "[15] 修复权限..."
-chmod 644 /data/adb/lspd/monitor 2>/dev/null
-
-echo "[16] 最终状态..."
-LSPD_PID=$(ps -A -o PID,NAME 2>/dev/null | grep 'lspd' | awk '{print $1}' | head -1)
-echo "  lspd: ${LSPD_PID:-DEAD}"
-echo "  zygote64: $(ps -A -o PID,NAME | grep zygote64)"
-echo "  system_server: $(ps -A -o PID,NAME | grep system_server)"
-MONITOR=$(cat /data/adb/lspd/monitor 2>/dev/null)
-echo "  monitor: ${MONITOR:-(空)}"
-echo "  service: $(service check "$MONITOR" 2>/dev/null)"
-
-echo "[17] 日志..."
-LATEST=$(ls -t $LOGDIR/verbose_*.log 2>/dev/null | head -1)
-if [ -n "$LATEST" ]; then
-    grep -E 'binder received|sent service|no response|HandleSystemServer|Loaded|hook|version|error.*init|native_bridge' "$LATEST" 2>/dev/null | tail -15
+echo "===== [4] 验证注入结果（NeoZygisk 判据：zygote64 映射 libzygisk.so）====="
+echo "  module.prop:"
+cat "$TMP_PATH/module.prop" 2>/dev/null
+CNT=0
+if [ -n "$NEW_ZG" ]; then
+    CNT=$(grep -c libzygisk /proc/$NEW_ZG/maps 2>/dev/null)
+    echo "  zygote64($NEW_ZG) 映射 libzygisk.so 次数=$CNT"
+    echo "  TracerPid=$(grep TracerPid /proc/$NEW_ZG/status 2>/dev/null | awk '{print $2}')"
 fi
 
 echo ""
-if [ -n "$BRIDGE_OK" ] && [ -n "$LSPD_PID" ]; then
-    echo "=== ✓ 修复成功 ==="
+if [ "${CNT:-0}" -gt 0 ]; then
+    echo "=== ✓ NeoZygisk 注入成功（zygote64 已映射 libzygisk.so）==="
+elif grep -q "injected" "$TMP_PATH/module.prop" 2>/dev/null; then
+    echo "=== ✓ NeoZygisk 注入成功（module.prop 标记 injected）==="
 else
-    echo "=== ✗ 修复失败 ==="
+    echo "=== ✗ 注入未确认，请查看上方 monitor.log ==="
 fi
 echo "DONE"

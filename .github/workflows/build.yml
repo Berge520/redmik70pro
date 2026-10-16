@@ -70,7 +70,7 @@ jobs:
               该附件为固定的第三方组件快照，
               **仅随首个版本（`v0.0.1`）发布一次**，请到
               [`v0.0.1` Release](https://github.com/Berge520/redmik70pro/releases/tag/v0.0.1)
-              的 Assets 处下载；含本方案专用 `ksud`、KernelSU 管理器 APK、Zygisk-Next、
-              Xposed 框架（Vector）、热重启模块、`fix_lspd.sh`。
+              的 Assets 处下载；含本方案专用 `ksud`、KernelSU 管理器 APK、NeoZygisk、
+              Xposed 框架（Vector）、热重启模块、`fix_lspd.sh`（历史别名）。
 
             > 旧方案为可选的历史用法；日常使用请优先选择图形工具 `RootTool.exe`。

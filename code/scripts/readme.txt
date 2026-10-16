@@ -50,19 +50,37 @@ adb shell su -c setenforce 0     # 宽容模式 Permissive
 
 
 --------------------------------------------------------------------
-四、修复 LSPosed / Zygisk 注入（fix_lspd.sh）
+四、修复 Zygisk 注入
 --------------------------------------------------------------------
-用途：模块更新或重启系统框架后，LSPosed 未加载 / Zygisk 崩溃时重新注入。
+用途：重越狱（KernelSU late-load）后，KernelSU 不会重放 post-fs-data 事件，
+      Zygisk 注入服务需手动补启动，并触发 zygote 重建让它注入。
 
-  # 方式 A：把脚本推到设备后以 root 执行（推荐路径固定、可复现）
-  adb push fix_lspd.sh /data/local/tmp/
-  adb shell su -c "sh /data/local/tmp/fix_lspd.sh"
+  · fix_zygisk.sh     —— 通用版，自动识别 NeoZygisk / Zygisk Next（推荐）
+  · fix_neozygisk.sh  —— 仅 NeoZygisk（命令硬编码为 zygisk-ptrace64 monitor）
+  · fix_zygisknext.sh —— 仅 Zygisk Next（命令硬编码为 ./bin/zygiskd daemon）
+  · fix_lspd.sh       —— fix_neozygisk.sh 的历史别名（逻辑等价，仅供旧文档兼容）
 
-  # 方式 B：脚本已在手机存储时直接执行（路径按实际存放位置替换）
-  adb shell su -c "sh /sdcard/Download/fix_lspd.sh"
+  通用版用法（自动识别框架，与 GUI 模式 6 逻辑一致）：
+  adb push fix_zygisk.sh /data/local/tmp/
+  adb shell su -c "sh /data/local/tmp/fix_zygisk.sh"
+    → 识别框架后：NeoZygisk 以 $MODDIR 为 CWD 启动 zygisk-ptrace64 monitor；
+      Zygisk Next 以 $MODDIR 为 CWD 后台化启动 `./bin/zygiskd daemon`
+      （不直接跑 post-fs-data.sh，因其末行 daemon 会前台常驻导致挂起），
+      随后触发 zygote 重建。
 
-  说明：脚本会杀掉旧 lspd → 重新注入 ZygiskSU → 重启 zygote/system_server
-        → 等待 bridge 建立，最后打印「修复成功 / 修复失败」。
+  专用版用法（已确认框架类型时）：
+  adb push fix_neozygisk.sh /data/local/tmp/
+  adb shell su -c "sh /data/local/tmp/fix_neozygisk.sh"     # 仅 NeoZygisk
+  adb push fix_zygisknext.sh /data/local/tmp/
+  adb shell su -c "sh /data/local/tmp/fix_zygisknext.sh"    # 仅 Zygisk Next
+    ⚠️ 专用脚本会在开头校验框架，若与本机不符会报错并提示改用另一个。
+
+  说明：脚本会清理旧 monitor/socket → 以 $MODDIR 为 CWD 启动注入服务
+        → 触发 zygote 重建 → 按框架分派校验注入结果，
+        最后打印「注入成功 / 未确认」。
+        ⚠️ 注入判据不可通用：NeoZygisk 校验 zygote64 是否映射 libzygisk.so；
+           Zygisk Next 注入后 unmap 自身 loader，须改用 `zygiskd status`
+           的 `zygote_states: N`（N≥1 即已注入）。
 
 
 --------------------------------------------------------------------

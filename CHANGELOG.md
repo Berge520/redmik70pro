@@ -115,6 +115,39 @@
 - **`.gitignore`**：补 `小米红米临时Root专业工具_*.zip` 忽略规则，
   修正注释与规则不符。
 
+### 注入判据与 zygote 重启修正（实测验证）
+
+- **`code/gui/core.py`**：修正 `restart_zygote()` —— 原先用 `pkill -9 -x zygote64`
+  在实机**返回 `rc=1` 且不生效**（`ps -o NAME` 会截断进程名，`-x` 精确匹配失效），
+  改用 `pkill -9 -f zygote64`（匹配完整命令行），并以「**zygote64 PID 是否变化**」
+  作为重启成功判据（不再依赖 pkill 返回码）。
+- **注入判据更正**：新增 `zygote_injected()`，以「**`zygote64` 的 `/proc/<pid>/maps`
+  是否映射 `libzygisk.so`**」为权威判据，替代 Vector CLI 的 `isFdAttached` ——
+  实测该字段反映的是 CLI **短命进程自身视角**，在其报 `false` 时 Vector 实际已正常
+  注入 framework（`VectorDeopter` 在大量 app 进程 hook、`IFrameworkService` binder 活跃）。
+- **`code/gui/mode_zygisk.py`**：检测 / 激活流程改用上述新判据；框架文案由
+  「Zygisk Next」更正为「**NeoZygisk**（框架本体）」。
+- **全仓库校正框架名称**：`README.md`（模式 12 文案、附件清单、组件下载与致谢链接）、
+  `code/gui/mode_links.py`（模式 12 链接项）、`.github/workflows/build.yml`
+  （附件包说明）等处，把「Zygisk-Next / Dr-TSNG/ZygiskNext」统一更正为
+  「**NeoZygisk** / JingMatrix/NeoZygisk」（模块 id `zygisksu`）；并移除
+  README 中「重启两个 zygote（`zygote` 与 `zygote_mi_secondary`）」的过时描述，
+  改为与实机一致的「重启 `zygote64`」。
+- **`code/tools/fix_lspd.sh`**：整体重写 —— 旧版是基于 **Zygisk Next + LSPosed**
+  的过时逻辑（`zygiskd daemon` / `service-stage` / `zygisk_lsposed` 目录），与实机
+  完全不匹配；现改为 NeoZygisk 版：清理旧 monitor/socket → 以 `$MODDIR` 为 CWD
+  启动 monitor → `pkill -f` 触发 zygote 重建 → 校验注入并打印结果。
+- **`docs/troubleshooting.md`**：
+  - `isFdAttached` 由「注入核心标志」**降级为不可靠旁证**，并新增
+    「zygote64 映射 `libzygisk.so`」首选判据与 `module.prop` 辅助判据；
+  - 「五、最终解决方案」步骤 3/4 改用 `pkill -f` 与新判据，「两条铁律」扩为「三条」；
+  - 踩坑表新增 **`pkill -x` 失效**、**误信 isFdAttached** 两条。
+- **`docs/maintenance.md`**、**`code/scripts/readme.txt`**：同步 zygote 重启命令
+  （`pkill -f`）与注入验证方法（`grep -c libzygisk`）。
+- **验证结果**（实机）：`pkill -9 -f zygote64` 后 zygote64 PID 变化并被 monitor 重新
+  seize，`grep -c libzygisk /proc/<pid>/maps` = 3，`module.prop` 三行全 😋。
+
+
 ### 构建与分发调整
 
 - **exe 不再入库**：`code/dist/RootTool.exe`（约 19 MB）从 git 追踪中移除
@@ -128,3 +161,177 @@
   README「获取所需文件」附件链接固定指向该 Release。
 - **日志忽略规则统一**：原 `code/logs/` + `code/dist/logs/` 合并为无前缀
   `logs/`，可匹配源码运行、exe 运行（仓库根 / `code/dist/`）等各层级日志目录。
+
+### Zygisk / Xposed 通用兼容（NeoZygisk + Zygisk Next · Vector + LSPosed）
+
+把模式 6 由「硬编码 NeoZygisk」改造为**运行时自动识别框架**，同时兼容
+NeoZygisk / Zygisk Next 与 Vector / LSPosed。
+
+- **`code/gui/core.py` 新增框架探测层**：
+  - `detect_zygisk()` 返回 `ZY_NEO` / `ZY_NEXT` / `ZY_NONE`。因 **NeoZygisk 与
+    Zygisk Next 的模块 id 同为 `zygisksu`**（无法靠目录名区分），改以
+    **入口文件**（`bin/zygisk-ptrace64` ↔ `bin/zygiskd`(软链→`zygiskd64`)）为首选判据，
+    常驻进程（`zygisk-ptrace64` ↔ `zn-nsdaemon-zygote`，Zygisk Next 侧无法靠 comm 名识别时
+    再兜 `/proc/<pid>/exe` 软链含 `zygiskd`）与运行时目录
+    （`/data/adb/neozygisk`）为兜底。
+    （**注意：Zygisk Next 没有 `zn-daemon` 进程**；`znctl` 只是配置工具，状态入口是
+    `./bin/zygiskd status`。）
+  - `zygisk_monitor_running()` / `zygisk_status()` / `zygisk_zygote_count()` /
+    `start_zygisk_daemon()` 均按探测结果分派：NeoZygisk 走
+    `zygisk-ptrace64 monitor`（`cd $MODDIR` + `TMP_PATH`），Zygisk Next 走
+    `cd $MODDIR` → `./bin/zygiskd daemon`（等价官方 `post-fs-data.sh` 末行）。
+  - **★ 注入判据不可通用**（真机 Zygisk Next 1.5.2 实测**推翻**早期假设）：
+    NeoZygisk 把 `libzygisk.so` 常驻映射在 zygote 里，可用
+    `grep -c libzygisk /proc/<zygote64>/maps` 判定；但 **Zygisk Next 注入完成后
+    会把自身 loader（`libzn_loader.so` 等）从 zygote 的 maps 中 unmap 掉**
+    （反检测），**实测该 grep 恒为 0**。故 `zygote_injected()` 改为**按框架分派**：
+    Zygisk Next 走 `zygiskd status` 的 `zygote_states: N`。
+  - `detect_xposed()` 改为返回 `(类型, CLI 路径)`，按序探测
+    Vector（`zygisk_vector/cli` → `/data/adb/vector/bin/cli`）、
+    LSPosed（`/data/adb/lspd/bin/cli`）、原版 Xposed；
+    新增 `xposed_fd_attached()` 输出 `isFdAttached`（仅作参考）。
+- **`code/gui/mode_zygisk.py`**：检测 / 激活页文案与日志改为按探测到的框架
+  动态显示（框架名、常驻进程名、激活方式各不相同）；
+  `KNOWN_FRAMEWORKS` 补入 Zygisk Next / LSPosed / Riru 等条目。
+- **实测验证**（真机，NeoZygisk + Vector 环境）：`detect_zygisk=neo`、
+  `monitor_running=True`、`zygote_count=1`、`zygote_injected=True`、
+  `detect_xposed=vector (/data/adb/modules/zygisk_vector/cli)` 全部符合预期。
+- **实测验证（真机 Zygisk Next 1.5.2）**：部署后跑通完整激活链路 ——
+  `detect_zygisk=next`、`monitor_running=True`（`/proc/*/exe` 软链含 `zygiskd64`）、
+  `zygiskd daemon` 后台化启动 12.8s 返回、`restart_zygote` 后
+  `zygote_states: 0 → 2`、`inject_state:1`、
+  `modules64:2,hma_oss_zygisk,zygisk_vector`、`modules_with_issue:0`
+  —— **HMA-OSS 与 Vector 两模块共存无冲突**。
+  此轮同时实测确认 Zygisk Next 的若干真实特征（已回写代码与文档）：
+  · 无 `zn-daemon`，注入后派生 `zn-nsdaemon-zygote` / `zn-nsdaemon-zygote_secondary`；
+    zygiskd 管理器进程 comm 名不可见，只能靠 `/proc/<pid>/exe` 识别；
+  · 状态命令是 `./bin/zygiskd status`（**不是 `znctl status`**，`znctl` 只做配置）；
+  · `post-fs-data.sh` 末行 `./bin/zygiskd daemon` 前台常驻，直接 `sh` 它会让 su 会话
+    永久挂起（实测 90s 不返回），必须后台化启动；
+  · `bin/` 为 `zygiskd`(软链→`zygiskd64`) / `zygiskd32` / `zygiskd64`，**无** `zygisk-ptrace64`。
+- **新增 `code/tools/fix_zygisk.sh`（通用注入修复脚本）**：命令行版的运行时框架
+  自动识别，逻辑与 GUI 模式 6 一致 —— 探测 NeoZygisk / Zygisk Next 后分派
+  （前者 `cd $MODDIR` 启动 `zygisk-ptrace64 monitor`，后者 `cd $MODDIR` 后台化启动
+  `./bin/zygiskd daemon`），再触发 zygote 重建并**按框架分派**校验注入
+  （NeoZygisk 查 `libzygisk.so` 映射，Zygisk Next 查 `zygote_states`）。
+  **原 `fix_lspd.sh` 保持原样、仅 NeoZygisk 专用**，
+  两份脚本并存；`RootTool.spec` 已把新脚本一并打入 exe。
+- **全量文档同步**（把本轮实测结论回写到全部 6 份文档，并消除过时/矛盾表述）：
+  - `README.md`：附件表补 Zygisk Next 入口/命令并标注「与 NeoZygisk 二选一」、
+    `fix_lspd.sh` 标注「仅 NeoZygisk 专用」；模式 6 说明补 Zygisk Next 等价动作；
+    新增「软重启可能升级为完整重启」与「越狱后 `getenforce` 回 Enforcing 属正常」提示；
+    安装框架步骤与 late-load 手动命令补 Zygisk Next 等价写法。
+  - `code/README.md`：`fix_lspd.sh`/`fix_zygisk.sh` 说明加「仅 NeoZygisk / 自动分派」限定。
+  - `docs/maintenance.md`：修正 **Zygisk Next 作者归属**（LSPosed Developers，早期源自
+    Dr-TSNG，消除同文档内自相矛盾）；「本机使用 NeoZygisk」改为「两框架均已实测跑通」；
+    版本对照表新增 Zygisk Next 备选行；步骤 ⑤ 补「切换框架后需重启再判定类型」；
+    `grep -c libzygisk` 判据加「**仅 NeoZygisk 适用**」限定，并补 Zygisk Next 等价命令块；
+    软重启 CAUTION 补「可能升级为完整重启」与 `getenforce` 正常现象。
+  - `docs/zygisk-monitor-multi-instance.md`：修正「`zygiskd64` 无 `status`」条目，
+    注明 **Zygisk Next 例外**（`./bin/zygiskd status` 正是权威状态入口）；
+    「黄金判据」段补 Zygisk Next 的判据与 `post-fs-data.sh` 挂起警告。
+  - `docs/troubleshooting.md`：命令速查清单补 Zygisk Next 命令接口（`zygiskd daemon/status`、
+    `zn-nsdaemon-zygote`）、按框架分派的注入判据、按 PID kill zygote 的更稳写法。
+  - 同步修正 `code/gui/core.py` 中 `detect_zygisk()` docstring 残留的 `zn-daemon`
+    （逻辑早已用 `zn-nsdaemon-zygote`，仅注释陈旧）。
+- **修复模式 6 激活路径的三个真机 bug**（复测：杀 monitor 模拟「无注入初始态」后重跑模式 6 发现）：
+  1. `start_zygisk_daemon` 里 `pkill -f zygisk-ptrace64` **自匹配自杀** ——
+     该命令由 `su -c '...zygisk-ptrace64...'` 执行，`-f` 按完整命令行匹配会命中
+     调用者自身，su 会话被 SIGTERM 杀掉（rc=143），后续 `cd`/`nohup` 永不执行，
+     monitor 根本起不来（表现为 `ok=False`、`monitor.log` 不生成）。
+     改用 `pkill -x zygisk-ptrace64`（精确进程名）。
+  2. `restart_zygote` 里 `pkill -f zygote64` **同源自匹配问题**；且实机 zygote64
+     的进程名(comm)是 `main`，`-x` 匹配不到、`-x main` 又会误伤一片。
+     改为**按 PID 精确 kill**（`pidof zygote64` + `pidof zygote`）。
+  3. `start_zygisk_daemon` 命令**必然超时误报失败**：KernelSU 的 `su -c` 会
+     wait 全部子进程，只要 monitor 是活的，该命令就永不返回（实测 `sleep 30 &`
+     也要等满 30s）。setsid / 子 shell / 重定向均无法规避。改为**不依赖返回码**：
+     短超时快速放行，再用「monitor 是否在跑」作真实判据 → `ok=True`。
+- **复测结论**（真机 NeoZygisk + Vector）：杀 monitor 后重跑模式 6，
+  `ok=True`、`monitor=True`、`injected=True`、zygote PID 变化，`PASS`；
+  `fix_zygisk.sh` 亦端到端跑通（`libzygisk.so` 映射 3 次、module.prop 显示
+  `injected/running`、双模块加载）。
+- **端到端回归**（真机 Zygisk Next 1.5.2）：走 `core.py` 真实代码路径
+  `detect_zygisk` → `zygisk_monitor_running` → `zygisk_status` →
+  `zygisk_zygote_count` → `zygote_injected` → `start_zygisk_daemon`
+  （幂等重启，12.8s 返回）→ `restart_zygote`（3.0s）→ 重新注入稳定为
+  `zygote_states=2`，全链路 `PASS`。
+- **新增记录 · 越狱后「软重启升级为完整重启」问题**（用户报告，尚在诊断）：
+  临时 Root 下点「越狱」触发 soft reboot → 中途异常 → 升级完整 reboot →
+  `androidboot.selinux=permissive` 丢失 → 回到 Enforcing 无法越狱 → 须重走漏洞。
+  已采集可疑线索：`SELinux: Context u:object_r:zygisk_file:s0 is not valid`（模块
+  `sepolicy.rule` 未加载）、`servicemanager: Multiple instances installed?`（ksu 域
+  服务重复注册）、切换框架后 NeoZygisk 残留 socket `/data/adb/neozygisk/{cp64.sock,
+  init_monitor}` 未清理。**唯一切断点尚未定位**，规避建议（重越狱前清理
+  `/data/adb/neozygisk` 与 `/data/adb/zygisksu`）已写入 `docs/troubleshooting.md` 第七章。
+- **新增 Vector 模块「生效」验证能力**（此前只能间接推断「Zygisk 注入了 → Vector 应也
+  起作用」，无法直接证明某个 Xposed 模块真的 hook 了目标进程；本轮补齐直接证据链）：
+  - **新增 `code/tools/verify_vector.sh`**（只读验证脚本，真机全绿）：三层证据链 ——
+    L1 `vectord` 守护进程存在、L2/L3 `cli modules ls` 列出已启用模块、
+    L4 `cli log cat` 中是否出现模块自己的 `[Tag]` hook 记录（★ 唯一硬判据）、
+    L4b 各模块作用域规模（静默模块的间接证据）、L5 可传包名查其注入作用域。
+  - **`code/gui/core.py` 新增 4 个函数**：`xposed_module_list`、`xposed_hook_evidence`、
+    `xposed_module_scope`、`xposed_vectord_running`。
+  - **`code/gui/mode_xposed.py`（模式 10）新增「检测模块生效」按钮**，把上述证据链
+    写入模块列表的「状态」列（`已证实 hook ✓` / `生效（作用域 N）` / `无作用域`）。
+- **修正模式 10 的真机 bug**：`load_modules` / `_operate` 使用的 CLI 子命令
+  `modules list` **不存在**（实机报 `Unmatched argument at index 1: 'list'` 且不返回数据），
+  正确子命令是 **`modules ls`**。已改用 `core.xposed_module_list()` 统一解析。
+- **本轮实测确认的关键事实**（用于判据取舍）：
+  · `isFdAttached` 字段**恒为 false**（模块明明在工作），不可作判据 —— 脚本与 GUI 均已忽略；
+  · `kmsg.log` 是 **kernel dmesg**（与模块 hook 无关），`cli log cat` 读的是 `modules_*.log`；
+  · 日志**只记录主动打 log 的模块**，静默模块（如 HyperCeiler）无记录属正常，
+    故新增「作用域条目数」作为间接判据，并明确标注最终以「打开对应 App 实测」为准。
+- **端到端回归**（真机 Vector v2.2 + 6 模块）：走 `core.py` 真实代码路径
+  `detect_xposed`→`('vector', /data/adb/modules/zygisk_vector/cli)`、
+  `xposed_vectord_running`→`True`、`xposed_module_list`→6 个、
+  `xposed_hook_evidence`→`[('VoiceAssistHook', 8)]`、
+  `xposed_module_scope`→`1`，与 `verify_vector.sh` 输出一致，全链路 `PASS`。
+
+### Zygisk 修复脚本「1 通用 + 2 专用」结构
+
+把 Zygisk 注入修复的脚本、GUI、文档、README 四层统一为
+**「1 通用 + 分别 2 种专用」**，消除此前「一个脚本名（`fix_lspd.sh`）既当通用
+又当专用」造成的口径混乱。
+
+- **脚本层**（`code/tools/`）：
+  - **通用** `fix_zygisk.sh`（保留）：运行时自动识别 NeoZygisk / Zygisk Next 并分派；
+  - **新增专用** `fix_neozygisk.sh`：NeoZygisk 专用，命令硬编码为
+    `cd $MODDIR && ./bin/zygisk-ptrace64 monitor`，开头校验框架，不符则报错；
+  - **新增专用** `fix_zygisknext.sh`：Zygisk Next 专用，命令硬编码为
+    `cd $MODDIR && ./bin/zygiskd daemon`，开头校验框架，不符则报错；
+  - `fix_lspd.sh` 明确为 `fix_neozygisk.sh` 的**历史别名**（逻辑等价，保留仅供兼容）。
+  - 三个新/改脚本头部均加「三脚本关系」ASCII 框图，互相指向。
+- **GUI 层**（`code/gui/mode_zygisk.py`）：模式 6 激活区新增 `_framework_notes()`，
+  在通用说明下**并列展示两框架的专用命令与注入判据**（NeoZygisk：`zygisk-ptrace64 monitor`
+  + 校验 `libzygisk`；Zygisk Next：`./bin/zygiskd daemon` + 校验 `zygote_states`），
+  并标注各自对应的脚本名。
+- **打包**（`code/packaging/RootTool.spec`）：`_TOOL_FILES` 加入 `fix_neozygisk.sh`
+  与 `fix_zygisknext.sh`。
+- **文档层**：`docs/troubleshooting.md` §七、`docs/maintenance.md` 步骤 ⑪ 与图形工具对照，
+  均改为「通用做法 + ① NeoZygisk 专用 + ② Zygisk Next 专用」三段式；
+  `code/scripts/readme.txt`、`code/README.md`、`README.md` 同步补两专用脚本说明。
+
+### 一致性修复：`fix_lspd.sh` 名实相符 + 清理文档中已废弃的 pkill 写法
+
+复查时发现此前重构遗留的两处名实不符，已修正：
+
+- **`fix_lspd.sh` 名为「`fix_neozygisk.sh` 的历史别名」，实为旧版逻辑**：
+  其正文仍用 `pkill -f zygisk-ptrace64`（会自匹配自杀）与 `pkill -9 -f zygote64`
+  （会命中命令自身），与 `fix_neozygisk.sh` 声称的「内容等价」不符。
+  已把正文完全同步为 `fix_neozygisk.sh` 的写法（`pkill -x` + 按 PID kill +
+  分框架判据 + `[0]` 前置校验），经 `diff` 确认二者除文件头（别名说明）与
+  多一行 `MON_LOG` 常量外**逐字节一致**。
+- **文档命令示例仍教已废弃写法**：以下「怎么做」的示例此前仍用 `pkill -f zygisk-ptrace64`
+  或 `pkill -9 -f zygote64`，与本项目已验证的结论（前者自匹配自杀、后者进程名 `main`
+  匹配不到）矛盾，已统一改为 `pkill -x zygisk-ptrace64` + `kill -9 $(pidof zygote64) $(pidof zygote)`：
+  - `README.md` 步骤 7「late-load 提示」（原先还按框架区分两种 pkill 写法，现统一为按 PID）；
+  - `docs/troubleshooting.md` §五「最终解决方案」、步骤 6、速查命令、踩坑记录表
+    （原「★ pkill -x 失效 → 改用 pkill -9 -f zygote64」一行结论有误，已改写为
+    「pkill 杀 zygote 均不可靠 → 按 PID kill」）；
+  - `docs/zygisk-monitor-multi-instance.md` 三处清理命令。
+  历史性条目（`CHANGELOG` 中各次修复记录、`troubleshooting` 踩坑表第 1 行）保留原样，
+  因其记录的是「当时发生了什么、当时怎么修的」，不属于「当前推荐做法」。
+
+---
+

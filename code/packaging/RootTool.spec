@@ -25,6 +25,10 @@ _TOOL_FILES = [
     'libwinpthread-1.dll',
     'ksud',
     'fix_lspd.sh',
+    'fix_zygisk.sh',
+    'fix_neozygisk.sh',
+    'fix_zygisknext.sh',
+    'verify_vector.sh',
 ]
 datas = [
     (os.path.join(ROOT, 'tools', name), 'tools')

@@ -58,10 +58,12 @@
 | 顺序 | 模式 | 操作 | 目的 |
 |--|--|--|--|
 | ① | **模式 4 · SELinux 模式切换** | 恢复 `Enforcing` | 越狱成功后按需恢复强制模式，提升安全性 |
-| ② | **模式 6 · Zygisk / Vector 一键激活** | 点「一键激活」 | **重越狱后（装 Zygisk/Vector 时）必做**：补启动 Zygisk + 重启两个 zygote |
+| ② | **模式 6 · Zygisk / Xposed 一键激活** | 点「一键激活」 | **重越狱后（装 Zygisk/Vector 时）必做**：自动识别 NeoZygisk / Zygisk Next，以正确 CWD 补启动 monitor（NeoZygisk：`zygisk-ptrace64 monitor`；Zygisk Next：`./bin/zygiskd daemon`）+ 重启 zygote64，并按框架分派校验注入 |
 | ③ | **模式 5 / 10** | 按需 | 管理 Root 模块 / Xposed 模块 |
 
 > 🔁 需要重启时**优先用模式 11 的「软重启」**（或 KernelSU 管理器的「软重启」），**不要点「完整重启」**，否则临时 Root 失效、需重走第三步。
+> ⚠️ 但请注意：**软重启本身也可能失败并升级为完整重启**（见 [排查记录 · 7.0](docs/troubleshooting.md)），届时同样需重走漏洞流程。
+> 💡 越狱成功后 `getenforce` 会回到 `Enforcing`，这是**正常现象**（提权靠 `ksu` 域而非 permissive 模式）。
 
 ### 第四步 · 验证
 
@@ -117,13 +119,13 @@ Fastboot: 下发 androidboot.selinux=permissive（临时，不写入分区）
 | 3 | Fastboot 分区提权（分步 + 一键） | Fastboot 模式 |
 | 4 | SELinux 模式切换（Permissive / Enforcing） | ADB + Root，或 Fastboot |
 | 5 | Root 模块管理（查看 / 禁用 / 启用 / 卸载） | ADB + Root |
-| 6 | Zygisk 崩溃修复 + **Vector 一键激活** | ADB + Root |
+| 6 | Zygisk 崩溃修复 + **Zygisk / Xposed 一键激活**（自动识别 NeoZygisk / Zygisk Next） | ADB + Root |
 | 7 | KernelSU 安全模式自救（进入 / 退出） | ADB + Root |
 | 8 | 模块列表备份与恢复 | ADB + Root |
 | 9 | 查看运行日志 | 无 |
 | 10 | Xposed 模块管理（Vector / LSPosed / 原始） | ADB + Root |
 | 11 | 重启控制（软重启 / 完整重启 / Recovery / Fastboot / 关机） | ADB 已连接 |
-| 12 | 相关链接（本项目 / KernelSU / Zygisk-Next / Vector） | 无 |
+| 12 | 相关链接（本项目 / KernelSU / NeoZygisk / Zygisk Next / Vector） | 无 |
 
 > 各模式的详细操作、按钮说明与两种提权路径的取舍，见 [code/README.md](code/README.md)。
 
@@ -144,10 +146,13 @@ Fastboot: 下发 androidboot.selinux=permissive（临时，不写入分区）
 |--|--|
 | `KernelSU_*.apk` | KernelSU 管理器（安装到手机） |
 | `ksud` | KernelSU 提权载荷，**旧方案专用版本**（推送到设备执行） |
-| `Zygisk-Next-*.zip` | Zygisk 实现模块（KernelSU 刷入） |
+| `NeoZygisk-*.zip` | Zygisk 实现模块（NeoZygisk，KernelSU 刷入；模块 id `zygisksu`）。亦可改用 **Zygisk Next**（模块 id **同为** `zygisksu`，入口 `bin/zygiskd`、状态 `./bin/zygiskd status`；**二者只能装其一**，GUI 模式 6 可自动识别） |
 | `Vector-*-release.zip`（或 `LSPosed-*.zip`） | Xposed 框架（LSPosed 现代复刻，推荐） |
 | 热重启模块.zip | 管理器不带「软重启」时使用的热重启模块 |
-| `fix_lspd.sh` | Zygisk / Xposed 注入异常时的重新注入脚本 |
+| `fix_zygisk.sh` | **通用**注入修复脚本（运行时自动识别 NeoZygisk / Zygisk Next 并分派） |
+| `fix_neozygisk.sh` | **NeoZygisk 专用**注入修复脚本（命令按 `zygisk-ptrace64 monitor` 硬编码） |
+| `fix_zygisknext.sh` | **Zygisk Next 专用**注入修复脚本（命令按 `./bin/zygiskd daemon` 硬编码） |
+| `fix_lspd.sh` | `fix_neozygisk.sh` 的**历史别名**（逻辑等价，保留仅供旧文档/附件兼容） |
 
 > ⚠️ **走旧方案（命令行）时，请用附件包（`fujian.zip`）自带的 `ksud`，勿替换为官方最新版** ——
 > 旧方案的 `service call late-load` 是针对该版本编写的，换版可能导致**注入失败**
@@ -155,7 +160,8 @@ Fastboot: 下发 androidboot.selinux=permissive（临时，不写入分区）
 
 > 💡 **想用最新版组件**（不依赖旧方案）时，可到各组件官方仓库下载：
 > [KernelSU](https://github.com/tiann/KernelSU/releases) ·
-> [Zygisk-Next](https://github.com/Dr-TSNG/ZygiskNext/releases) ·
+> [NeoZygisk](https://github.com/JingMatrix/NeoZygisk/releases) ·
+> [Zygisk Next](https://github.com/Dr-TSNG/ZygiskNext/releases) ·
 > [Vector](https://github.com/JingMatrix/Vector/releases)。
 > 配套更新流程见 [更新维护指南](docs/maintenance.md)。
 
@@ -211,7 +217,7 @@ fastboot reboot
 |--|--|
 | 红米 K70 Pro | 已开启 USB 调试（见[快速开始](#-快速开始)） |
 | 电脑 + adb 环境 | 见下方步骤 1 |
-| 附件包（**必需**，见 [v0.0.1 Release](../../releases/tag/v0.0.1)，文件名 `fujian.zip`） | 含本方案**专用**的 `ksud`、KernelSU 管理器 APK、Zygisk-Next、Xposed 框架模块、`fix_lspd.sh` 等（见[获取所需文件](#-获取所需文件)） |
+| 附件包（**必需**，见 [v0.0.1 Release](../../releases/tag/v0.0.1)，文件名 `fujian.zip`） | 含本方案**专用**的 `ksud`、KernelSU 管理器 APK、NeoZygisk、Xposed 框架模块、`fix_lspd.sh`（历史别名）等（见[获取所需文件](#-获取所需文件)） |
 | USB 数据线 | 连接 K70 Pro 与电脑 |
 
 > ⚠️ **本（旧）方案的 `ksud` 必须用附件包（`fujian.zip`）里的那个专用版本**，**不要**换成官方最新版：
@@ -301,16 +307,18 @@ adb shell su -c setenforce 1
 
 #### 7. 安装 Zygisk / Xposed 框架（可选）
 
-1. 在 KernelSU 管理器里刷入附件包（`fujian.zip`）中的 **Zygisk-Next** 与 Xposed 框架模块（推荐 **Vector**）。
+1. 在 KernelSU 管理器里刷入附件包（`fujian.zip`）中的 **NeoZygisk**（或 **Zygisk Next**，二选一）与 Xposed 框架模块（推荐 **Vector**）。
 2. 如需**热重启**，刷入附件包（`fujian.zip`）中的**热重启模块**。
 3. **重启**后按**步骤 4 ~ 6** 重新激活 KernelSU。
-4. MT 管理器授予 root 权限，执行附件包（`fujian.zip`）里的 **`fix_lspd.sh`**。
-5. 之后若模块需要**重启系统框架**，只需**再执行一次 `fix_lspd.sh`**。
+4. 用图形工具**模式 6「一键激活」**自动识别框架（NeoZygisk / Zygisk Next）并补启动 Zygisk 守护进程、重启 zygote（命令行等价：**通用** `fix_zygisk.sh`；**专用** `fix_neozygisk.sh` / `fix_zygisknext.sh`）。
+5. 之后若模块需要**重启系统框架**，只需**再执行一次**该脚本 / 模式 6。
 
-> ⚠️ **`late-load` 模式下 Zygisk 不会自启**：重越狱后需手动补执行
-> `post-fs-data.sh` 拉起 `zn-daemon`，再重启两个 zygote（`zygote` 与
-> `zygote_mi_secondary`），Vector 才会激活。等价于图形工具**模式 6「一键激活」**，
-> 完整原理见 [排查记录](docs/troubleshooting.md)。
+> ⚠️ **`late-load` 模式下 Zygisk 不会自启**：重越狱后需手动以模块目录为 CWD
+> 拉起 Zygisk 守护进程（NeoZygisk 为 `zygisk-ptrace64 monitor`；Zygisk Next 为 `./bin/zygiskd daemon`），
+> 再重建 zygote（**两框架统一**：按 PID `kill -9 $(pidof zygote64) $(pidof zygote)`，
+> 勿用 `pkill -x zygote64`——实机 zygote64 的进程名是 `main` 匹配不到），
+> 守护进程才会 seize 新 zygote 并注入，Vector 随之激活。
+> 等价于图形工具**模式 6「一键激活」**，完整原理见 [排查记录](docs/troubleshooting.md)。
 >
 > 🧱 **不要刷修改系统分区模块**，否则会变砖！
 
@@ -340,14 +348,15 @@ adb shell su -c id            # 期望输出 uid=0(root)
 
 </details>
 
-> 📄 更完整的手动命令速查（含 SELinux 切换、`fix_lspd.sh`、排障）见 [code/scripts/readme.txt](code/scripts/readme.txt)。
+> 📄 更完整的手动命令速查（含 SELinux 切换、`fix_zygisk.sh` 系列脚本、排障）见 [code/scripts/readme.txt](code/scripts/readme.txt)。
 
 ---
 
 ## 🔗 相关资源
 
 - [KernelSU](https://github.com/tiann/KernelSU) — 本方案使用的 Root 方案内核模块管理工具
-- [Zygisk-Next](https://github.com/Dr-TSNG/ZygiskNext) — KernelSU 下的 Zygisk 实现（自 v4-0.9.2 起闭源分发）
+- [NeoZygisk](https://github.com/JingMatrix/NeoZygisk) — KernelSU 下的 Zygisk 实现（基于 ptrace，模块 id `zygisksu`；与下者二选一）
+- [Zygisk Next](https://github.com/Dr-TSNG/ZygiskNext) — KernelSU 下的 Zygisk 实现（模块 id 同为 `zygisksu`；与上者二选一）
 - [JingMatrix/Vector](https://github.com/JingMatrix/Vector) — LSPosed 现代复刻框架（需 Zygisk）
 - [Android Platform-Tools](https://developer.android.com/tools/releases/platform-tools) — adb / fastboot
 - [mi_nobl_root（免解 BL 的 ksu + lsp 方案）](https://github.com/xunchahaha/mi_nobl_root) — 同 mqsas 漏洞原理，面向小米 15 的 LKM 内核模块（insmod）运行时加载方案
@@ -357,7 +366,8 @@ adb shell su -c id            # 期望输出 uid=0(root)
 
 - [code/README.md](code/README.md) — 图形化工具完整说明（界面构成、操作指引、打包）
 - [docs/maintenance.md](docs/maintenance.md) — 更新 KernelSU 组件 / Zygisk / Vector 的维护流程
-- [docs/troubleshooting.md](docs/troubleshooting.md) — Vector「未激活」根因与一键恢复方案
+- [docs/troubleshooting.md](docs/troubleshooting.md) — Vector「未激活」根因与一键恢复方案（含 GUI 框架自动识别说明）
+- [docs/zygisk-monitor-multi-instance.md](docs/zygisk-monitor-multi-instance.md) — Zygisk monitor 多实例堆积与手动执行 `post-fs-data.sh` 的陷阱
 - [CHANGELOG.md](CHANGELOG.md) — 更新记录
 
 ---

@@ -53,6 +53,8 @@ class XposedFrame(tk.Frame):
         ui.button(bar, '重新检测框架', self.detect, accent=True)
         self.btn_list = ttk.Button(bar, text='刷新模块列表', command=self.load_modules)
         self.btn_list.pack(side='left', padx=(0, 8), pady=4)
+        self.btn_verify = ttk.Button(bar, text='检测模块生效', command=self.verify_modules)
+        self.btn_verify.pack(side='left', padx=(0, 8), pady=4)
         ui.button(bar, '检测 Root', self.check_root_btn)
 
         # 模块列表
@@ -165,21 +167,11 @@ class XposedFrame(tk.Frame):
             app.log_out('---------- 读取 Xposed 模块 ----------')
             rows = []
             if self.xp_type in (core.XP_VECTOR, core.XP_LSPOSED):
-                res = r.su('%s modules list' % self.cli_path, quiet=True, timeout=25)
-                for line in res.lines:
-                    line = line.strip()
-                    if not line or line.lower().startswith(('module', '---')):
-                        continue
-                    # CLI 输出可能是多列（标识 + 状态/描述），整行校验会把
-                    # 带空格的正常输出误判为非法而全部丢弃。故只取首列（标识）
-                    # 做白名单校验，其余列仅作展示。
-                    token = line.split()[0]
-                    if not core.valid_xposed_id(token):
-                        app.log_out('（忽略不合法标识：%s）' % line)
-                        continue
-                    rest = line[len(token):].strip()
+                # ★ 子命令是 `modules ls`，不是 `modules list`（后者实机报
+                #   Unmatched argument 且不返回数据）。直接用 core 的统一解析。
+                for token, rest in core.xposed_module_list(r, self.cli_path):
                     rows.append((token, rest))
-                    app.log_out('  %s' % line)
+                    app.log_out('  %s %s' % (token, rest))
                 if not rows:
                     app.log_out('（CLI 未返回模块，或输出格式与预期不同）')
             else:
@@ -213,6 +205,78 @@ class XposedFrame(tk.Frame):
 
         self.app.run_task(job, on_done=done, busy_text='正在读取模块列表...',
                           done_text='模块列表已更新')
+
+    # -----------------------------------------------------------
+    def verify_modules(self):
+        """验证模块是否**真正生效**，结果写回模块列表的「状态」列。
+
+        判据（实机验证）：
+          · isFdAttached 字段不可用（模块工作时仍报 false）。
+          · hook 日志里的 [Tag] 是最硬的证据，但 Tag 由模块自己命名，
+            **与包名不同域、无法映射**（如 [VoiceAssistHook] ↔ 某包名），
+            故只在日志区展示，不强行对应到列表行。
+          · 列表「状态」列只反映可确证的事实：作用域条目数
+            （>0 = 已配置注入范围；0 = 不会 hook 任何 App）。
+        """
+        if self.xp_type not in (core.XP_VECTOR, core.XP_LSPOSED):
+            messagebox.showinfo('提示', '当前框架不支持生效检测，请先执行「重新检测框架」。')
+            return
+        if not self.cli_path:
+            messagebox.showinfo('提示', '未获取到 CLI 路径，请先执行「重新检测框架」。')
+            return
+
+        def job(_ctl):
+            app = self.app
+            r = app.runner
+            app.log_out('---------- 检测模块生效 ----------')
+            # L1 框架是否活着
+            alive = core.xposed_vectord_running(r)
+            app.log_out('框架守护进程 vectord：%s' % ('运行中' if alive else '未运行'))
+            if not alive:
+                app.log_out('[警告] vectord 未运行，框架未启动，模块不可能生效。'
+                            '请先修复 Zygisk 注入。')
+            # L2 已注册模块
+            mods = core.xposed_module_list(r, self.cli_path)
+            app.log_out('已启用模块：%d 个' % len(mods))
+            # L3 hook 实证（日志里出现的 [Tag]）
+            evidence = core.xposed_hook_evidence(r, self.cli_path)
+            if evidence:
+                app.log_out('hook 实证（日志中出现过以下模块标签，说明有模块确实在 hook）：')
+                for tag, n in evidence:
+                    app.log_out('  %s ×%d' % (tag, n))
+            else:
+                app.log_out('hook 实证：无（日志为空，或所有模块均为静默工作）')
+            # L4 逐模块作用域（可确证的注入范围）
+            result = []
+            for pkg, _st in mods:
+                n = core.xposed_module_scope(r, self.cli_path, pkg)
+                if n > 0:
+                    state = '作用域 %d 个 App' % n
+                elif n == 0:
+                    state = '无作用域（不会 hook）'
+                else:
+                    state = '作用域未知'
+                result.append((pkg, state))
+                app.log_out('  %-32s %s' % (pkg, state))
+            # 诚实标注局限：Tag 无法映射到包名；静默模块不留痕。
+            app.log_out('提示：上面 hook 实证的标签是模块自命名的，与包名不同域、'
+                        '无法逐行对应；静默模块不写日志属正常。')
+            app.log_out('「作用域」仅表示已配置注入范围，最终是否生效请打开对应 App 实测。')
+            return result
+
+        def done(rows):
+            if not ui.widget_alive(self.tree):
+                return
+            if not rows:
+                return
+            for i in self.tree.get_children():
+                self.tree.delete(i)
+            for pkg, state in rows:
+                self.tree.insert('', 'end', values=(pkg, state))
+            self._enable_ops(True)
+
+        self.app.run_task(job, on_done=done, busy_text='正在检测模块生效...',
+                          done_text='生效检测完成')
 
     # -----------------------------------------------------------
     def _selected_module(self):
