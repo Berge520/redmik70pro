@@ -10,6 +10,36 @@ import re
 import time
 
 
+# 公开 API 边界：限定 `from zygisk_core import *`（core.py 转发）的范围，
+# 避免把 re / time 等模块级名字一并泄漏出去。清单须与 core.py 的显式 import 一致。
+__all__ = [
+    # 常量
+    'ZYGISK_MODULE',
+    'ZYGISK_MODULE_DIR',
+    'ZYGISK_NEO_BIN',
+    'ZYGISK_NEO_TMP',
+    'ZYGISK_NEO_PROP',
+    'ZYGISK_NEXT_BIN',
+    'ZYGISK_NEXT_BIN64',
+    'ZYGISK_NEXT_PROC',
+    'ZYGISK_MONITOR_LOG',
+    'ZY_NONE',
+    'ZY_NEO',
+    'ZY_NEXT',
+    'ZY_LABEL',
+    # 函数
+    'detect_zygisk',
+    'zygisk_monitor_running',
+    'zygisk_read_prop',
+    'zygisk_status',
+    'zygisk_zygote_count',
+    'start_zygisk_daemon',
+    'zygote64_pid',
+    'zygote_injected',
+    'restart_zygote',
+]
+
+
 # ---------------------------------------------------------------
 #  Zygisk 框架探测与激活（兼容 NeoZygisk 与 Zygisk Next）
 # ---------------------------------------------------------------

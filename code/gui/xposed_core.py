@@ -9,6 +9,35 @@ core.py 通过 `from xposed_core import *` 转发，故外部仍以 core.xxx 访
 import re
 
 
+# 公开 API 边界：限定 `from xposed_core import *`（core.py 转发）的范围，
+# 避免把 re 等模块级名字一并泄漏出去。清单须与 core.py 的显式 import 一致。
+__all__ = [
+    # 常量
+    'XP_NONE',
+    'XP_VECTOR',
+    'XP_LSPOSED',
+    'XP_ORIGINAL',
+    'XP_ORIGINAL_INSTALLED',
+    'XP_CLI',
+    'VECTOR_MODULE_DIR',
+    'XP_VECTOR_CLI_PATHS',
+    'XP_LOG_DIR',
+    # 校验函数
+    'valid_xposed_id',
+    'valid_scope_target',
+    # 函数
+    'detect_xposed',
+    'xposed_fd_attached',
+    'xposed_module_list',
+    'xposed_hook_evidence',
+    'xposed_module_scope',
+    'xposed_scope_list',
+    'xposed_scope_add',
+    'xposed_scope_remove',
+    'xposed_vectord_running',
+]
+
+
 # ---------------------------------------------------------------
 #  Xposed 框架检测
 # ---------------------------------------------------------------
