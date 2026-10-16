@@ -344,29 +344,101 @@ class DeviceState:
     def __init__(self):
         self.adb = False
         self.fastboot = False
+        # 处于 recovery / sideload 状态的设备：第三方 Recovery（TWRP 等）
+        # 会启动 adbd 且自带 root shell，此时 adb 命令仍可用，但状态
+        # 不是 'device'。单独标记，供重启等功能区分对待。
+        self.adb_recovery = False
+        # 明细：ADB 侧每台设备的 (序列号, 状态)，状态可能是
+        # device / unauthorized / offline / recovery / sideload 等；
+        # Fastboot 侧为序列号列表。
+        # 保留明细是为了在"手机已插上但未授权/离线"时给出可读提示，
+        # 而不是笼统地判定为"未检测到设备"。
+        self.adb_devices = []
+        self.fastboot_devices = []
 
     @property
     def any(self):
-        return self.adb or self.fastboot
+        return self.adb or self.fastboot or self.adb_recovery
+
+    @property
+    def adb_usable(self):
+        """ADB 是否可用（普通 device 状态或 recovery/sideload 状态）。"""
+        return self.adb or self.adb_recovery
+
+    def recovery_targets(self):
+        """返回处于 recovery / sideload 状态的设备 (序列号, 状态) 列表。"""
+        return [(sn, s) for sn, s in self.adb_devices
+                if s.lower() in ('recovery', 'sideload')]
+
+    def describe(self):
+        """返回一句可读的连接状态描述，用于日志与按钮反馈。"""
+        if self.adb and self.fastboot:
+            return 'ADB 与 Fastboot 均已连接'
+        if self.adb:
+            if self.fastboot:
+                return 'ADB 与 Fastboot 均已连接'
+            return 'ADB 已连接'
+        if self.adb_recovery:
+            rec = self.recovery_targets()
+            parts = ['%s(%s)' % (sn, s) for sn, s in rec]
+            return 'ADB 已连接（Recovery 模式）：' + '、'.join(parts)
+        if self.fastboot:
+            return 'Fastboot 已连接'
+        # 有设备但未就绪：把真实状态（unauthorized/offline）透出，
+        # 这是"明明连了手机却检测不到"最常见的原因。
+        if self.adb_devices:
+            parts = ['%s(%s)' % (sn, state) for sn, state in self.adb_devices]
+            return '检测到 ADB 设备但未就绪：' + '、'.join(parts)
+        if self.fastboot_devices:
+            return '检测到 Fastboot 设备但未就绪：' + '、'.join(self.fastboot_devices)
+        return '未检测到设备'
+
+
+def start_adb_server(runner):
+    """确保 adb server 正在运行，返回是否成功。
+
+    adb devices 在 server 未启动时虽然会自动拉起，但首次拉起需要数秒，
+    且偶发因端口占用/旧进程残留而失败，导致"手机已连接却列出空表"。
+    这里显式 start-server 并等待，可显著降低这类漏检。
+    """
+    # -a 让 server 监听所有接口；仅本机使用可去掉，这里保持默认行为。
+    res = runner.run(['adb', 'start-server'], quiet=True, timeout=30)
+    return res.ok
+
+
+def _parse_adb_devices(lines):
+    """解析 adb devices 输出，返回 [(序列号, 状态)]。
+
+    跳过 "List of devices attached" 等表头行；只保留形如
+    "abcdef\tdevice" 的有效行。状态可能是 device / unauthorized /
+    offline / recovery / sideload 等。
+    """
+    out = []
+    for line in lines:
+        parts = line.split()
+        if len(parts) >= 2 and parts[0] != 'List':
+            out.append((parts[0], parts[1]))
+    return out
 
 
 def detect_devices(runner):
     """检测 ADB / Fastboot 连接状态，返回 DeviceState。"""
     st = DeviceState()
 
-    res = runner.run(['adb', 'devices'], quiet=True, timeout=15)
-    for line in res.lines:
-        parts = line.split()
-        if len(parts) >= 2 and parts[1] == 'device':
-            st.adb = True
-            break
+    res = runner.run(['adb', 'devices'], quiet=True, timeout=20)
+    st.adb_devices = _parse_adb_devices(res.lines)
+    st.adb = any(state == 'device' for _, state in st.adb_devices)
+    # recovery / sideload 状态的设备：第三方 Recovery 下 adb 仍可用，
+    # 区别于 unauthorized / offline（真正不可用），单独标记。
+    st.adb_recovery = any(
+        state.lower() in ('recovery', 'sideload') for _, state in st.adb_devices)
 
-    res = runner.run(['fastboot', 'devices'], quiet=True, timeout=15)
+    res = runner.run(['fastboot', 'devices'], quiet=True, timeout=20)
     for line in res.lines:
         parts = line.split()
-        if len(parts) >= 2 and parts[1].lower() == 'fastboot':
-            st.fastboot = True
-            break
+        if len(parts) >= 2 and parts[1].lower() in ('fastboot', 'fastbootd'):
+            st.fastboot_devices.append(parts[0])
+    st.fastboot = bool(st.fastboot_devices)
 
     return st
 
@@ -412,6 +484,156 @@ def is_admin():
         return bool(ctypes.windll.shell32.IsUserAnAdmin())
     except Exception:
         return False
+
+
+# 提权重启时传给新实例的命令行标记：新实例据此跳过单实例询问，
+# 因为旧实例会在提权成功后自行退出，不需要（也不应该）被强制结束。
+ELEVATED_FLAG = '--elevated'
+
+
+def relaunch_as_admin():
+    """以管理员权限重新启动当前程序（触发 UAC 提权）。
+
+    返回 (是否已发起, 说明)：
+      - 成功发起：返回 (True, '')，调用方应随后彻底退出当前实例。
+      - 用户取消 UAC 或失败：返回 (False, 原因)。
+
+    打包为 exe 时用 sys.executable；开发态（python 运行 .py）时用
+    ShellExecuteW 重新以管理员身份拉起 python 并带上原脚本参数。
+
+    开发态务必使用【绝对路径】的脚本并显式指定工作目录，否则提权后
+    新进程的工作目录会变（继承系统目录），相对路径的 main.py 找不到，
+    导致新实例启动失败。
+
+    额外附带 ELEVATED_FLAG 参数：新实例据此跳过"是否结束旧实例"的单实例
+    询问。提权是"旧实例主动让位"的场景——旧实例会在本函数成功后自行退出，
+    若新实例仍去询问并强杀旧实例，就会出现新旧互相打断、"关了又开"的错乱。
+    """
+    if sys.platform != 'win32':
+        return False, '仅支持 Windows 平台提权。'
+    if is_admin():
+        return False, '当前已是管理员权限。'
+    import ctypes
+    try:
+        if getattr(sys, 'frozen', False):
+            # 已打包：直接提权重启 exe，工作目录设为 exe 所在目录
+            exe = os.path.abspath(sys.executable)
+            params = ELEVATED_FLAG
+            workdir = os.path.dirname(exe)
+        else:
+            # 开发态：提权重启 python 并传入原脚本（转为绝对路径）
+            exe = os.path.abspath(sys.executable)
+            script = os.path.abspath(sys.argv[0])
+            rest = ' '.join('"%s"' % a for a in sys.argv[1:])
+            params = ' '.join(p for p in ('"%s"' % script, rest, ELEVATED_FLAG) if p)
+            workdir = os.path.dirname(script)
+        # SW_SHOWNORMAL = 1；lpOperation = 'runas' 触发 UAC；
+        # lpDirectory 显式指定新进程的工作目录，避免继承系统目录。
+        ret = ctypes.windll.shell32.ShellExecuteW(
+            None, 'runas', exe, params, workdir, 1)
+        # 返回值 > 32 表示成功发起；<= 32 为错误码（如用户取消为 5）
+        if ret > 32:
+            return True, ''
+        return False, '提权请求被取消或失败（错误码 %d）。' % ret
+    except Exception as exc:
+        return False, '提权失败：%s' % exc
+
+
+# 单实例互斥由 gui/single_instance.py 统一负责（启动器 roottool.pyw 调用），
+# 此处不再重复实现，避免两套互斥机制互相干扰。
+
+
+_KSU_PKG = 'me.weishu.kernelsu'
+
+
+def probe_root(runner):
+    """多方式探测 Root 状态。
+
+    返回 (状态, 依据, tag, 明细列表)：
+      - 状态：'已获取' / '疑似已获取（未确认）' / '未获取'
+      - 依据：一句话说明
+      - tag：'ok' / 'warn' / 'bad'
+      - 明细：[(方式, 结果描述, 是否命中布尔值)]
+
+    权威口径与 is_root 保持一致：只有真实 uid=0 证据才判"已获取"，
+    其余（su 二进制存在、内核模块加载、SELinux 宽松）均只作旁证。
+    """
+    detail = []
+    # 方式 1：su -c id（最权威）
+    res = runner.su('id', quiet=True, timeout=15)
+    su_uid = res.ok and 'uid=0' in res.text
+    detail.append(('su -c id', '返回 uid=0' if su_uid else '未返回 uid=0', su_uid))
+    # 方式 2：当前 shell 自身 uid（部分开发版/root shell 下直接即为 0）
+    res2 = runner.shell('id', quiet=True, timeout=15)
+    shell_uid = 'uid=0' in res2.text
+    detail.append(('adb shell id', '返回 uid=0' if shell_uid else '未返回 uid=0', shell_uid))
+    if su_uid or shell_uid:
+        return '已获取', 'su/shell 返回 uid=0', 'ok', detail
+
+    # 方式 3：su 二进制是否存在（旁证）
+    su_path = runner.shell(
+        'which su || command -v su || ls /system/bin/su /system/xbin/su /sbin/su 2>/dev/null',
+        quiet=True, timeout=15).first()
+    has_su = bool(su_path)
+    detail.append(('su 二进制', su_path or '未找到', has_su))
+
+    # 方式 4：KernelSU 载荷（旁证）
+    has_ksud = runner.shell('test -x /data/adb/ksud', quiet=True, timeout=15).ok
+    detail.append(('KernelSU 载荷', '/data/adb/ksud 存在' if has_ksud else '不存在', has_ksud))
+
+    # 方式 5：内核模块（旁证）
+    mods = runner.shell('ls /sys/module/', quiet=True, timeout=15).text.lower()
+    has_kmod = 'kernelsu' in mods
+    detail.append(('内核模块', 'kernelsu 已加载' if has_kmod else '未发现 kernelsu', has_kmod))
+
+    # 方式 6：SELinux 是否宽松（旁证）
+    sel = runner.shell('getenforce', quiet=True, timeout=15).first().strip()
+    is_perm = sel.lower() == 'permissive'
+    detail.append(('SELinux', '%s' % (sel or '未知'), is_perm))
+
+    if has_ksud:
+        return '疑似已获取（未确认）', '/data/adb/ksud 存在（旁证，不代表已提权）', 'warn', detail
+    if has_kmod:
+        return '疑似已获取（未确认）', '内核模块 kernelsu 已加载（旁证）', 'warn', detail
+    if is_perm:
+        return '疑似已获取（未确认）', 'SELinux 处于 Permissive（旁证）', 'warn', detail
+    return '未获取', 'su 与 shell 均未返回 uid=0', 'bad', detail
+
+
+def probe_ksu(runner):
+    """多方式探测 KernelSU 是否已加载。
+
+    返回 (状态, 依据, tag, 明细列表)，明细同 probe_root。
+    只要管理器包存在即认为"已安装"；载荷/内核模块存在即认为"已加载"。
+    """
+    detail = []
+    # 方式 1：管理器包
+    pkgs = runner.shell('pm list packages', quiet=True, timeout=25).text
+    has_pkg = _KSU_PKG in pkgs
+    detail.append(('管理器包', _KSU_PKG if has_pkg else '未安装', has_pkg))
+    if has_pkg:
+        return '已安装（管理器存在）', '检测到包 %s' % _KSU_PKG, 'ok', detail
+
+    # 方式 2：内核模块
+    mods = runner.shell('ls /sys/module/', quiet=True, timeout=15).text.lower()
+    has_kmod = 'kernelsu' in mods
+    detail.append(('内核模块', 'kernelsu 已加载' if has_kmod else '未发现 kernelsu', has_kmod))
+    if has_kmod:
+        return '已加载（内核模块）', '内核模块 kernelsu 已加载', 'ok', detail
+
+    # 方式 3：ksud 载荷
+    has_ksud = runner.shell('test -x /data/adb/ksud', quiet=True, timeout=15).ok
+    detail.append(('ksud 载荷', '/data/adb/ksud 存在' if has_ksud else '不存在', has_ksud))
+    if has_ksud:
+        return '已加载（LKM 模式）', '/data/adb/ksud 存在', 'ok', detail
+
+    # 方式 4：/data/adb 目录（弱旁证）
+    has_dir = runner.shell('test -d /data/adb', quiet=True, timeout=15).ok
+    detail.append(('/data/adb 目录', '存在' if has_dir else '不存在', has_dir))
+    if has_dir:
+        return '疑似已加载（目录存在）', '/data/adb 目录存在', 'warn', detail
+
+    return '未检测到', '未发现管理器包 / 内核模块 / ksud 载荷', 'bad', detail
 
 
 def preflight():
@@ -527,522 +749,135 @@ def valid_xposed_id(name):
 def soft_reboot(runner):
     """软重启：只重启 Android 用户空间框架，不切断电源。
 
-    依次尝试多种方式，任一成功即返回：
+    依次尝试多种方式，任一成功即返回 (True, 命中的命令, 尝试明细)：
       1. setprop ctl.restart zygote —— 重启 zygote，系统框架整体重启
       2. svc power reboot userspace —— Android 官方软重启入口
     该操作不清缓存、不断电，通常 10~30 秒恢复，可让模块 / Root 服务重新加载。
+    全部失败时返回 (False, '', 尝试明细)，供调用方把"试过哪些方式"透出给用户。
     """
     methods = (
         "setprop ctl.restart zygote",
         "svc power reboot userspace",
     )
+    tried = []
     for cmd in methods:
         r = runner.su(cmd, quiet=True, timeout=30)
+        tried.append((cmd, r.ok))
         if r.ok:
-            return True, cmd
-    return False, methods[0]
+            return True, cmd, tried
+    return False, '', tried
+
+
+def _reboot_cmd(runner, target):
+    """下发重启到指定目标，兼容普通系统与第三方 Recovery。
+
+    普通系统：adb reboot <target> 直接生效。
+    第三方 Recovery（TWRP 等）：adbd 以 root 运行，状态为 recovery，
+    直接 reboot 同样可用，但偶发需要 shell 形式，故加兜底。
+    """
+    args = ['adb', 'reboot'] + ([target] if target else [])
+    if runner.run(args, quiet=True, timeout=20).ok:
+        return True
+    cmd = 'reboot ' + target if target else 'reboot'
+    return runner.shell(cmd, quiet=True, timeout=20).ok
 
 
 def full_reboot(runner):
     """完整重启手机（等价于手动关机再开机）。"""
-    return runner.run(['adb', 'reboot'], quiet=True, timeout=20).ok
+    return _reboot_cmd(runner, '')
 
 
 def reboot_recovery(runner):
     """重启到 Recovery 模式。"""
-    return runner.run(['adb', 'reboot', 'recovery'], quiet=True, timeout=20).ok
+    return _reboot_cmd(runner, 'recovery')
 
 
 def reboot_bootloader(runner):
     """重启到 Fastboot / bootloader 模式。"""
-    return runner.run(['adb', 'reboot', 'bootloader'], quiet=True, timeout=20).ok
+    return _reboot_cmd(runner, 'bootloader')
+
+
+def reboot_edl(runner):
+    """重启到 EDL（高通 9008 深度刷机模式）。
+
+    小米 / 红米机型常见：进入后窗口将无法识别设备（无 adb / fastboot），
+    需借助特定工具与 9008 驱动进行底层刷写。部分机型/固件会忽略该指令。
+    """
+    if _reboot_cmd(runner, 'edl'):
+        return True
+    # 部分机型的 EDL 入口是 /sys 节点或专用属性。
+    return runner.shell('echo 1 > /sys/kernel/reboot/reason', quiet=True,
+                        timeout=15).ok
 
 
 def power_off(runner):
-    """关机（断开电源）。"""
-    return runner.run(['adb', 'shell', 'reboot', '-p'], quiet=True, timeout=20).ok
+    """关机（断开电源），recovery 下用 shell 兜底。"""
+    if runner.run(['adb', 'shell', 'reboot', '-p'], quiet=True, timeout=20).ok:
+        return True
+    return runner.shell('reboot -p', quiet=True, timeout=20).ok
 
 
 # ---------------------------------------------------------------
 #  Zygisk 框架探测与激活（兼容 NeoZygisk 与 Zygisk Next）
 # ---------------------------------------------------------------
-# ⚠️ 二者模块 ID **同为 `zygisksu`**（历史上都沿用 Magisk 的 zygisksu 目录），
-#    无法靠目录名区分，必须靠「入口可执行文件 / 常驻进程名」判定：
-#      · NeoZygisk (JingMatrix)：bin/zygisk-ptrace64，常驻 zygisk-ptrace64，
-#        运行时目录 /data/adb/neozygisk，状态写在 $TMP/module.prop（键值文本）。
-#      · Zygisk Next (LSPosed Developers)：bin/zygiskd（软链→zygiskd64）、
-#        bin/zygiskd32、bin/zygiskd64。注入完成后会为每个 zygote 派生一个名为
-#        `zn-nsdaemon-zygote` / `zn-nsdaemon-zygote_secondary` 的守护进程，并建立
-#        `@zn_zygote_*` / `@zn_init_*` 系列 unix socket；zygiskd 自身的「管理器」
-#        进程 comm 名不可见（ps 的 NAME 列看不到），只能靠 /proc/<pid>/exe 软链识别。
-#        状态查询：在 $MODDIR 下执行 `./bin/zygiskd status`，输出 `zygote_states: N`
-#        （N=已注入的 zygote 数）与 `zygote_state_i:...` 明细。
-# ⚠️ **注入判据不可通用**：NeoZygisk 把 libzygisk.so 常驻映射在 zygote 里，可用
-#    `grep -c libzygisk /proc/<zygote64>/maps` 判定；但 Zygisk Next 注入后会**把
-#    自身 loader（libzn_loader.so 等）从 zygote 的 maps 中 unmap 掉**（反检测），
-#    实测该 grep 恒为 0。故 Zygisk Next 必须改用 `zygiskd status` 的 `zygote_states`。
-#    详见 docs/troubleshooting.md「七、GUI 工具的框架自动识别」。
-ZYGISK_MODULE = 'zygisksu'
-ZYGISK_MODULE_DIR = '/data/adb/modules/%s' % ZYGISK_MODULE
-
-# NeoZygisk 专属
-ZYGISK_NEO_BIN = ZYGISK_MODULE_DIR + '/bin/zygisk-ptrace64'
-ZYGISK_NEO_TMP = '/data/adb/neozygisk'
-ZYGISK_NEO_PROP = ZYGISK_NEO_TMP + '/module.prop'
-
-# Zygisk Next 专属
-ZYGISK_NEXT_BIN = ZYGISK_MODULE_DIR + '/bin/zygiskd'   # 兼容不分 ABI 子目录的旧版
-ZYGISK_NEXT_BIN64 = ZYGISK_MODULE_DIR + '/bin/zygiskd64'
-ZYGISK_NEXT_PROC = 'zn-nsdaemon-zygote'                # 注入后派生的 zygote 守护进程
-
-ZYGISK_MONITOR_LOG = '/data/local/tmp/monitor.log'
-
-# 探测结果类型
-ZY_NONE = 'none'
-ZY_NEO = 'neo'          # NeoZygisk
-ZY_NEXT = 'next'        # Zygisk Next
-ZY_LABEL = {
-    ZY_NEO: 'NeoZygisk',
-    ZY_NEXT: 'Zygisk Next',
-    ZY_NONE: '未检测到 Zygisk 框架',
-}
-
-
-def detect_zygisk(runner):
-    """探测本机安装的 Zygisk 实现，返回 ZY_* 常量之一。
-
-    判据（按可靠性排序）：
-      1. 入口文件：bin/zygisk-ptrace64 → NeoZygisk；bin/**/zygiskd → Zygisk Next。
-         （Zygisk Next 的 zygiskd 按 ABI 分目录，故用通配匹配任意一层。）
-      2. 常驻进程：zygisk-ptrace64 / zn-nsdaemon-zygote（运行时兜底）。
-      3. 运行时目录：/data/adb/neozygisk 存在 → NeoZygisk。
-    均不命中返回 ZY_NONE。
-    """
-    # 1. 入口文件（最可靠，模块未运行时也可判定）
-    if runner.su('test -x ' + ZYGISK_NEO_BIN, quiet=True, timeout=15).ok:
-        return ZY_NEO
-    # Zygisk Next 的 zygiskd 位于 bin/<abi>/zygiskd
-    if runner.su('ls %s/bin/*/zygiskd %s/bin/zygiskd 2>/dev/null'
-                 % (ZYGISK_MODULE_DIR, ZYGISK_MODULE_DIR),
-                 quiet=True, timeout=15).text.strip():
-        return ZY_NEXT
-    # 2. 常驻进程兜底
-    if runner.shell('pgrep -f zygisk-ptrace64', quiet=True, timeout=15).text.strip():
-        return ZY_NEO
-    # Zygisk Next 注入后会派生 zn-nsdaemon-zygote（未注入时不存在）；
-    # zygiskd 管理器进程 comm 名不可见，故再兜一个 exe 软链判定。
-    if runner.shell('pgrep -f %s' % ZYGISK_NEXT_PROC,
-                    quiet=True, timeout=15).text.strip():
-        return ZY_NEXT
-    if runner.su('for p in /proc/[0-9]*; do '
-                 'e=$(readlink $p/exe 2>/dev/null); '
-                 'case "$e" in *zygiskd*) exit 0;; esac; done; exit 1',
-                 quiet=True, timeout=20).ok:
-        return ZY_NEXT
-    # 3. 运行时目录兜底
-    if runner.su('test -d ' + ZYGISK_NEO_TMP, quiet=True, timeout=15).ok:
-        return ZY_NEO
-    return ZY_NONE
-
-
-def zygisk_monitor_running(runner, kind=None):
-    """Zygisk 注入服务是否在运行（按框架分派）。
-
-    · NeoZygisk：常驻进程名 zygisk-ptrace64（monitor）。
-    · Zygisk Next：zygiskd 管理器进程（comm 名不可见），用 /proc/<pid>/exe
-      软链是否指向 bin/zygiskd* 判定；注入后还会派生 zn-nsdaemon-zygote。
-    kind 为空时自动探测，避免重复探测可显式传入。
-    """
-    kind = kind or detect_zygisk(runner)
-    if kind == ZY_NEO:
-        return bool(runner.shell('pgrep -f zygisk-ptrace64',
-                                 quiet=True, timeout=15).text.strip())
-    if kind == ZY_NEXT:
-        # 管理器进程在 → daemon 已拉起（这是「服务在跑」的可靠判据）。
-        if runner.su('for p in /proc/[0-9]*; do '
-                     'e=$(readlink $p/exe 2>/dev/null); '
-                     'case "$e" in *zygiskd*) exit 0;; esac; done; exit 1',
-                     quiet=True, timeout=20).ok:
-            return True
-        # 兜底：已注入时必有 zn-nsdaemon-zygote。
-        return bool(runner.shell('pgrep -f %s' % ZYGISK_NEXT_PROC,
-                                 quiet=True, timeout=15).text.strip())
-    return False
-
-
-def zygisk_read_prop(runner):
-    """读取 NeoZygisk 运行时状态文件，返回 {key: value}。
-
-    monitor 运行时会实时重写 $ZYGISK_NEO_TMP/module.prop，内容形如：
-        monitor: 😋 tracing
-        zygote64: 😋 injected
-        daemon64: 😋 running
-        Modules (2): hma_oss_zygisk, zygisk_vector
-    monitor 未运行时该文件可能不存在或为空，此时返回空字典。
-    （Zygisk Next 无此文件，调用前请先用 detect_zygisk 判定。）
-    """
-    res = runner.su('cat %s' % ZYGISK_NEO_PROP, quiet=True, timeout=15)
-    info = {}
-    if not res.ok:
-        return info
-    for line in res.lines:
-        if ':' not in line:
-            continue
-        key, _, value = line.partition(':')
-        info[key.strip()] = value.strip()
-    return info
-
-
-def zygisk_status(runner, kind=None):
-    """返回 Zygisk 状态摘要文本（按框架分派），失败返回空串。
-
-    · NeoZygisk：读 $ZYGISK_NEO_TMP/module.prop（键值文本）。
-    · Zygisk Next：执行 `./bin/zygiskd status`（含 zygote_states 字段）。
-      必须以 $MODDIR 为 CWD 执行（zygiskd 内部走相对路径）。
-    """
-    kind = kind or detect_zygisk(runner)
-    if kind == ZY_NEO:
-        return runner.su('cat %s' % ZYGISK_NEO_PROP, quiet=True, timeout=15).text
-    if kind == ZY_NEXT:
-        res = runner.su(
-            'cd %(d)s && ./bin/zygiskd status 2>&1' % {'d': ZYGISK_MODULE_DIR},
-            quiet=True, timeout=20)
-        return res.text
-    return ''
-
-
-def zygisk_zygote_count(runner, kind=None):
-    """返回已接管的 zygote 数量，无法解析返回 -1。
-
-    · NeoZygisk：统计 module.prop 中值为 "injected" 的键（如 zygote64）。
-    · Zygisk Next：解析 `zygiskd status` 输出里的 `zygote_states: N`。
-    """
-    kind = kind or detect_zygisk(runner)
-    if kind == ZY_NEO:
-        info = zygisk_read_prop(runner)
-        return sum(1 for v in info.values() if 'injected' in v.lower())
-    if kind == ZY_NEXT:
-        text = zygisk_status(runner, ZY_NEXT)
-        m = re.search(r'zygote_states\s*:\s*(\d+)', text)
-        return int(m.group(1)) if m else -1
-    return -1
-
-
-def start_zygisk_daemon(runner, kind=None):
-    """以正确的 CWD 启动 Zygisk 注入服务（重越狱后手动补启动）。
-
-    ⚠️ 关键：NeoZygisk 的 zygisk-ptrace64 内部全部使用相对路径
-    （./bin/zygiskd64、./module.prop、./lib64/libzygisk.so），
-    因此**必须以模块目录 $MODDIR 为工作目录启动**，否则会因找不到
-    ./module.prop 而立刻 exit=1，注入阶段也会因找不到 ./bin/zygiskd64 中断。
-    这正是官方 post-fs-data.sh 里 `cd "$MODDIR"` 那一步的作用。
-
-    · NeoZygisk：`cd $MODDIR && ./bin/zygisk-ptrace64 monitor &`
-    · Zygisk Next：`cd $MODDIR && ./bin/zygiskd daemon &`（等价于官方
-      post-fs-data.sh 最后那一步；daemon 会自行常驻并派生子进程）。
-
-    ⚠️ 两者都**不能直接执行官方脚本**：NeoZygisk 没有前台脚本；Zygisk Next
-    的 post-fs-data.sh 末行 `./bin/zygiskd daemon` 会**前台常驻不返回**，
-    经 `su -c 'sh ./post-fs-data.sh'` 调用会让整个 su 会话永久挂起。
-    因此这里统一改为「后台化 daemon + 短超时放行 + 复查进程」。
-
-    late-load 模式下 ksud 是后注入的，不会自动重放 post-fs-data 事件，
-    故重越狱后必须手动补启动。返回 (ok, 说明)。
-    """
-    kind = kind or detect_zygisk(runner)
-
-    if kind == ZY_NEO:
-        if not runner.su('test -x ' + ZYGISK_NEO_BIN, quiet=True, timeout=15).ok:
-            return False, '未找到 %s，请确认已安装 NeoZygisk 模块（%s）。' % (
-                ZYGISK_NEO_BIN, ZYGISK_MODULE)
-        # 先清理可能存在的旧 monitor / 脏 socket，再以正确 CWD 启动，避免重复实例。
-        # ⚠️ 清理必须用 `pkill -x zygisk-ptrace64`（按精确进程名匹配），
-        #    不能用 `pkill -f zygisk-ptrace64`：后者按完整命令行匹配，会命中
-        #    执行本命令的 `su -c '...zygisk-ptrace64...'` 自身（命令行里含该字样），
-        #    导致 su 会话被 SIGTERM 自杀（rc=143），后续 cd/nohup 永不执行 → monitor 起不来。
-        # ⚠️ 关于返回码：KernelSU 的 `su -c` 会 wait 全部子进程，只要 monitor
-        #    是活的，这条命令就**永远不会主动返回**（实测带 `sleep 30 &` 也要等满 30s）。
-        #    这是 su 的语义，无法靠 setsid / 子 shell / 重定向规避。因此这里
-        #    **不依赖命令返回码**：给一个短超时快速放行，随后用「monitor 是否在跑」
-        #    作为真正的成功判据（见下方复检）。
-        cmd = (
-            'pkill -x zygisk-ptrace64 2>/dev/null; sleep 1; '
-            'rm -f %(tmp)s/init_monitor; '
-            'cd %(dir)s && export TMP_PATH=%(tmp)s && '
-            'nohup ./bin/zygisk-ptrace64 monitor '
-            '> %(log)s 2>&1 < /dev/null &'
-        ) % {
-            'tmp': ZYGISK_NEO_TMP,
-            'dir': ZYGISK_MODULE_DIR,
-            'log': ZYGISK_MONITOR_LOG,
-        }
-        # 短超时：等 monitor 完成启动即可，不等命令「返回」（它不会返回）。
-        runner.su(cmd, quiet=True, timeout=8)
-        time.sleep(2)
-        if zygisk_monitor_running(runner, ZY_NEO):
-            return True, 'NeoZygisk monitor 已启动。'
-        return False, ('monitor 未启动，请确认已安装 NeoZygisk 模块（%s）且具备 Root。'
-                       % ZYGISK_MODULE)
-
-    if kind == ZY_NEXT:
-        # 定位可执行入口：优先 bin/zygiskd（软链），退回 bin/zygiskd64。
-        if not runner.su('test -x %s || test -x %s'
-                         % (ZYGISK_NEXT_BIN, ZYGISK_NEXT_BIN64),
-                         quiet=True, timeout=15).ok:
-            return False, ('未找到 %s 或 %s，请确认已安装 Zygisk Next 模块（%s）。'
-                           % (ZYGISK_NEXT_BIN, ZYGISK_NEXT_BIN64, ZYGISK_MODULE))
-        # 准备运行时目录 + 归档上一轮的 znctx / modules_info（照搬官方
-        # post-fs-data.sh 的前置动作），再后台化启动 daemon。
-        cmd = (
-            'mkdir -p /data/adb/zygisksu; '
-            'cd %(dir)s || exit 1; '
-            '[ -f /data/adb/zygisksu/znctx ] && '
-            'mv /data/adb/zygisksu/znctx /data/adb/zygisksu/znctx.old; '
-            '[ -f /data/adb/zygisksu/modules_info ] && '
-            'mv /data/adb/zygisksu/modules_info /data/adb/zygisksu/modules_info.old; '
-            'nohup ./bin/zygiskd daemon '
-            '> %(log)s 2>&1 < /dev/null &'
-        ) % {'dir': ZYGISK_MODULE_DIR, 'log': ZYGISK_MONITOR_LOG}
-        # 短超时：只等 daemon 完成拉起，不等命令「返回」（常驻不返回）。
-        runner.su(cmd, quiet=True, timeout=10)
-        time.sleep(3)
-        if zygisk_monitor_running(runner, ZY_NEXT):
-            return True, 'Zygisk Next daemon 已启动。'
-        return False, ('daemon 未启动，请确认已安装 Zygisk Next 模块（%s）且具备 Root。'
-                       % ZYGISK_MODULE)
-
-    return False, ('未检测到 Zygisk 框架（既无 %s，也无 %s/bin/*/zygiskd）。'
-                   % (ZYGISK_NEO_BIN, ZYGISK_MODULE_DIR))
-
-
-def zygote64_pid(runner):
-    """返回当前 64 位 zygote 的 PID（字符串），未运行返回空串。
-
-    实机进程名就是 zygote64（另有 32 位 zygote、以及 zygote 派生的
-    webview_zygote）。先用 pidof（精确匹配进程名，不会误伤
-    webview_zygote），失败再退回 ps 过滤。
-    """
-    res = runner.su('pidof zygote64', quiet=True, timeout=15)
-    pid = res.text.strip().split()
-    if pid:
-        return pid[0]
-    res = runner.shell(
-        "ps -A -o PID,NAME | awk '$2==\"zygote64\"{print $1}'",
-        quiet=True, timeout=15)
-    return res.text.strip().split()[0] if res.text.strip() else ''
-
-
-def zygote_injected(runner, kind=None):
-    """zygote 是否已被 Zygisk 注入（按框架分派，判据不可通用）。
-
-    · NeoZygisk：检查 64 位 zygote 的 /proc/<pid>/maps 是否映射了
-      libzygisk.so（NeoZygisk 会把它常驻映射在 zygote 里）。
-
-    · Zygisk Next：**不能用 libzygisk/maps 判据** —— 实测 Zygisk Next 注入
-      完成会把自身 loader 从 zygote 的 maps 中 unmap 掉（反检测），该 grep
-      恒为 0。必须改用 `./bin/zygiskd status` 输出的 `zygote_states: N`
-      （N≥1 表示已有 zygote 被成功注入）。
-
-    返回 True/False；无法判定返回 None。
-    """
-    kind = kind or detect_zygisk(runner)
-    if kind == ZY_NEXT:
-        count = zygisk_zygote_count(runner, ZY_NEXT)
-        if count < 0:
-            return None
-        return count > 0
-    # NeoZygisk（及未知框架兜底）：查 zygote64 的 maps。
-    pid = zygote64_pid(runner)
-    if not pid:
-        return None
-    res = runner.su('grep -c libzygisk /proc/%s/maps' % pid, quiet=True, timeout=15)
-    text = res.text.strip()
-    return text.isdigit() and int(text) > 0
-
-
-def restart_zygote(runner, service=None):
-    """触发 zygote 重建，让 monitor 捕获新 zygote 并注入。
-
-    NeoZygisk 的 monitor 以 PTRACE_SEIZE 接管**新出现**的 zygote，故需先
-    杀掉现有 zygote，由 init 重新拉起后 monitor 才能注入。
-
-    ⚠️ 不能用 kill/pkill 的返回码判断成败：pkill 在「没有匹配到进程」时
-    返回 1，而 zygote 被 -9 杀掉后 init 会立刻重建、新旧 PID 交替，
-    返回码无法反映真实结果。因此这里改用「zygote64 PID 是否变化」
-    作为判据：杀掉前记录 PID，重建后 PID 必然不同。
-
-    实机 64 位 zygote 名即 zygote64，32 位为 zygote；两者都要杀才能
-    触发完整重建（只杀 64 位时 system_server 可能仍挂旧进程）。
-    service 参数保留以兼容旧调用，忽略之。
-    """
-    before = zygote64_pid(runner)
-    # ⚠️ 不能用 `pkill -f zygote64`：本命令命令行里含 "zygote64" 字样，
-    #    pkill -f（按完整命令行匹配）会命中执行它的 `su -c '...zygote64...'`
-    #    自身，把 su 会话一起杀掉（虽然侥幸仍能杀掉 zygote，但行为脆弱）。
-    # ⚠️ 也不能用 `pkill -x zygote64`：实机 zygote64 的进程名(comm)是 "main"，
-    #    精确名匹配不到，而 `-x main` 会误杀大量同名进程。
-    # ✅ 正确做法：按 PID 精确 kill —— 先用 pidof 取到真实 PID 再 kill。
-    pids = []
-    p64 = zygote64_pid(runner)
-    if p64:
-        pids.append(p64)
-    res32 = runner.su('pidof zygote', quiet=True, timeout=15)
-    if res32.text.strip():
-        pids.extend(res32.text.strip().split())
-    if pids:
-        runner.su('kill -9 ' + ' '.join(pids), quiet=True, timeout=30)
-
-    # 轮询等待新 zygote 出现且 PID 与旧值不同（init 重建通常在数秒内）。
-    for _ in range(30):
-        time.sleep(1)
-        now = zygote64_pid(runner)
-        if now and now != before:
-            return True
-    return False
+# 具体实现已拆分到同目录 zygisk_core.py（便于单文件维护），此处仅做转发，
+# 使既有 `core.xxx` 调用保持零改动。模块内常量与函数清单见 zygisk_core.py。
+from zygisk_core import *  # noqa: F401,F403
+from zygisk_core import (  # noqa: F401 - 显式列出以便静态检查与 IDE 补全
+    ZYGISK_MODULE,
+    ZYGISK_MODULE_DIR,
+    ZYGISK_NEO_BIN,
+    ZYGISK_NEO_TMP,
+    ZYGISK_NEO_PROP,
+    ZYGISK_NEXT_BIN,
+    ZYGISK_NEXT_BIN64,
+    ZYGISK_NEXT_PROC,
+    ZYGISK_MONITOR_LOG,
+    ZY_NONE,
+    ZY_NEO,
+    ZY_NEXT,
+    ZY_LABEL,
+    detect_zygisk,
+    zygisk_monitor_running,
+    zygisk_read_prop,
+    zygisk_status,
+    zygisk_zygote_count,
+    start_zygisk_daemon,
+    zygote64_pid,
+    zygote_injected,
+    restart_zygote,
+)
 
 
 
 # ---------------------------------------------------------------
 #  Xposed 框架检测
 # ---------------------------------------------------------------
-XP_NONE = 'none'
-XP_VECTOR = 'vector'
-XP_LSPOSED = 'lsposed'
-XP_ORIGINAL = 'original'
-XP_ORIGINAL_INSTALLED = 'original_installed'
-
-XP_CLI = {
-    XP_VECTOR: '/data/adb/vector/bin/cli',
-    XP_LSPOSED: '/data/adb/lspd/bin/cli',
-}
-
-# Vector 的 CLI 可能出现在两个位置，探测时按序尝试。
-VECTOR_MODULE_DIR = '/data/adb/modules/zygisk_vector'
-XP_VECTOR_CLI_PATHS = (
-    VECTOR_MODULE_DIR + '/cli',
-    XP_CLI[XP_VECTOR],
+# 具体实现已拆分到同目录 xposed_core.py（便于单文件维护），此处仅做转发，
+# 使既有 `core.xxx` 调用保持零改动。模块内常量与函数清单见 xposed_core.py。
+from xposed_core import *  # noqa: F401,F403
+from xposed_core import (  # noqa: F401 - 显式列出以便静态检查与 IDE 补全
+    XP_NONE,
+    XP_VECTOR,
+    XP_LSPOSED,
+    XP_ORIGINAL,
+    XP_ORIGINAL_INSTALLED,
+    XP_CLI,
+    VECTOR_MODULE_DIR,
+    XP_VECTOR_CLI_PATHS,
+    XP_LOG_DIR,
+    valid_xposed_id,
+    valid_scope_target,
+    detect_xposed,
+    xposed_fd_attached,
+    xposed_module_list,
+    xposed_hook_evidence,
+    xposed_module_scope,
+    xposed_scope_list,
+    xposed_scope_add,
+    xposed_scope_remove,
+    xposed_vectord_running,
 )
-
-
-def detect_xposed(runner):
-    """返回 (type, cli_path)。type 为 XP_* 常量之一。
-
-    · Vector：CLI 有两个位置 —— 模块目录内 `zygisk_vector/cli`，以及
-      /data/adb/vector/bin/cli（安装脚本软链/副本）。两者都探测。
-    · LSPosed：CLI 固定在 /data/adb/lspd/bin/cli（主类 org.lsposed.lspd.cli.Main）。
-    """
-    for path in (XP_VECTOR_CLI_PATHS):
-        if runner.su('test -x ' + path, quiet=True, timeout=15).ok:
-            return XP_VECTOR, path
-    if runner.su('test -x ' + XP_CLI[XP_LSPOSED], quiet=True, timeout=15).ok:
-        return XP_LSPOSED, XP_CLI[XP_LSPOSED]
-
-    conf = '/data/data/de.robv.android.xposed.installer/conf/modules.list'
-    if runner.su('test -f ' + conf, quiet=True, timeout=15).ok:
-        return XP_ORIGINAL, ''
-
-    res = runner.shell('pm list packages', quiet=True, timeout=20)
-    if 'de.robv.android.xposed.installer' in res.text:
-        return XP_ORIGINAL_INSTALLED, ''
-
-    return XP_NONE, ''
-
-
-def xposed_fd_attached(runner, cli):
-    """查询 Vector / LSPosed 的 isFdAttached 状态：True/False/None。
-
-    ⚠️ 该字段反映的是 CLI 这个短命进程**自身**的 fd 视角，实测在
-    system_server 已注入时仍可能报 false，**不可作为激活判据**，
-    仅作参考输出。真正的判据是 zygote 是否映射 libzygisk.so。
-    cli 为空（未安装/无 CLI）时返回 None。
-    """
-    if not cli:
-        return None
-    res = runner.su('sh %s --json status' % cli, quiet=True, timeout=20)
-    if not res.ok:
-        return None
-    m = re.search(r'"isFdAttached"\s*:\s*(true|false)', res.text, re.I)
-    if m:
-        return m.group(1).lower() == 'true'
-    return None
-
-
-# Vector / LSPosed 的框架日志目录（cli log cat 读取的就是这里的 modules_*.log）。
-XP_LOG_DIR = '/data/adb/lspd/log'
-
-
-def xposed_module_list(runner, cli):
-    """列出 Vector / LSPosed 已注册模块：返回 [(包名, 状态), ...]。
-
-    ★ CLI 的正确子命令是 `modules ls`，**不是 `modules list`**
-      （实机验证：`modules list` 报 `Unmatched argument at index 1: 'list'` 且不返回数据）。
-    cli 为空或命令失败时返回 []。
-    """
-    if not cli:
-        return []
-    res = runner.su('sh %s modules ls' % cli, quiet=True, timeout=25)
-    rows = []
-    for line in res.lines:
-        line = line.strip()
-        if not line or line.lower().startswith(('package', '---')):
-            continue
-        parts = line.split()
-        token = parts[0]
-        if not valid_xposed_id(token):
-            continue
-        # 实机列格式：PACKAGE  UID  STATUS（如 `com.x  10688  enabled`）。
-        # 只取末列 STATUS 作显示，避免把中间 UID 一并带入。
-        status = parts[-1] if len(parts) >= 2 else 'enabled'
-        rows.append((token, status))
-    return rows
-
-
-def xposed_hook_evidence(runner, cli):
-    """从框架日志中提取「模块 hook 实证」：返回 [(模块Tag, 次数), ...]（按次数降序）。
-
-    原理：`cli log cat` dump 模块日志，形如
-        [ 时间 PID:UID:TID I/VectorLegacyBridge ] [模块Tag] process=xxx
-    其中 `[模块Tag]` 是模块在 hook 代码里主动打出的，出现即证明该模块已在目标进程执行。
-
-    ⚠️ 重要局限（实机核实）：日志只记录**模块主动打 log** 的行为。
-       静默工作的模块（如 HyperCeiler）不会留痕，故结果为空 ≠ 该模块未生效。
-       判定静默模块请看 xposed_module_scope() 或直接功能实测。
-    """
-    if not cli:
-        return []
-    res = runner.su('sh %s log cat' % cli, quiet=True, timeout=25)
-    counts = {}
-    for line in res.lines:
-        # 只取行尾那组 [Tag]（模块自己的标签），避开 I/VectorLegacyBridge 这类框架标签。
-        tags = re.findall(r'\]\s*\[([A-Za-z0-9_.]+)\]', line)
-        for t in tags:
-            counts[t] = counts.get(t, 0) + 1
-    return sorted(counts.items(), key=lambda kv: -kv[1])
-
-
-def xposed_module_scope(runner, cli, module_id):
-    """查询某模块的注入作用域条目数（= 它会注入多少个 App）。失败返回 -1。
-
-    作用域是「框架会不会向 App 注入该模块」的依据：条目>0 表示已配置注入范围；
-    条目=0 表示该模块不会 hook 任何 App。这是静默模块（无 log）生效的间接证据。
-    """
-    if not cli or not valid_xposed_id(module_id):
-        return -1
-    res = runner.su('sh %s scope ls %s' % (cli, module_id), quiet=True, timeout=25)
-    if not res.ok:
-        return -1
-    n = 0
-    for line in res.lines:
-        line = line.strip()
-        if not line or line.upper().startswith(('APP_PACKAGE', '---')):
-            continue
-        n += 1
-    return n
-
-
-def xposed_vectord_running(runner):
-    """Vector 守护进程 vectord 是否在运行（框架活着的最粗判据）。"""
-    return runner.su('pgrep -f vectord', quiet=True, timeout=15).ok
 
 
 # ---------------------------------------------------------------

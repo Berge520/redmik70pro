@@ -19,7 +19,9 @@ code/
 │  ├─ branding.py             应用图标：纯标准库生成多尺寸 ico（打包 + 窗口图标）
 │  ├─ assets/                 界面资源
 │  │  └─ brand.ico            应用图标（由 branding.py 生成）
-│  ├─ core.py                 核心层：路径解析、adb/fastboot 调用、设备检测
+│  ├─ core.py                 核心层：路径解析、adb/fastboot 调用、设备检测（Zygisk / Xposed 段转发至下方模块）
+│  ├─ zygisk_core.py          Zygisk 框架探测与激活（供 core.py 转发的独立后端）
+│  ├─ xposed_core.py          Xposed 框架探测与作用域操作（供 core.py 转发的独立后端）
 │  ├─ single_instance.py      单实例检测（重复启动时询问是否结束旧实例）
 │  ├─ mode_status.py          模式 1   设备状态检测
 │  ├─ mode_adb.py             模式 2   ADB 直连提权
@@ -27,10 +29,12 @@ code/
 │  ├─ mode_selinux.py         模式 4   SELinux 模式切换
 │  ├─ mode_modules.py         模式 5   Root 模块管理
 │  ├─ mode_zygisk.py          模式 6   Zygisk 崩溃修复 + Zygisk / Xposed 一键激活
+│  ├─ mode_zygisk_activation.py  └ 激活能力块（ZygiskActivationMixin，由 mode_zygisk 继承）
 │  ├─ mode_safemode.py        模式 7   KernelSU 安全模式自救
 │  ├─ mode_backup.py          模式 8   模块列表备份恢复
 │  ├─ mode_logs.py            模式 9   查看运行日志
 │  ├─ mode_xposed.py          模式 10  Xposed 模块管理
+│  ├─ mode_xposed_scope.py    └ 作用域编辑能力块（XposedScopeMixin，由 mode_xposed 继承）
 │  ├─ mode_reboot.py          模式 11  重启控制
 │  └─ mode_links.py           模式 12  相关链接（GitHub 项目与依赖）
 ├─ tools/                     运行必需的二进制与脚本
@@ -166,7 +170,7 @@ python gui\roottool.pyw
 | 7 | KernelSU 安全模式自救（进入 / 退出） | ADB + Root |
 | 8 | 模块列表备份与恢复 | ADB + Root |
 | 9 | 查看运行日志 | 无 |
-| 10 | Xposed 模块管理（Vector / LSPosed / 原始） | ADB + Root |
+| 10 | Xposed 模块管理（Vector / LSPosed / 原始）+ **模块作用域编辑** | ADB + Root |
 | 11 | 重启控制（软重启 / 完整重启 / Recovery / Fastboot / 关机） | ADB 已连接 |
 | 12 | 相关链接（本项目 / KernelSU / NeoZygisk / Vector 仓库） | 无 |
 
@@ -234,7 +238,25 @@ python gui\roottool.pyw
 | 检查 Root 状态 | 模式 2 | 通过 `su -c id` 判断是否已获真实 uid=0 |
 | 刷新设备 | 顶部状态栏 | 重新检测 ADB / Fastboot 连接状态 |
 
-### 6.5 任务与取消
+### 6.5 Xposed 模块作用域编辑（模式 10）
+
+**作用域**指「某模块会注入哪些 App」。当某个 App 被 Xposed 模块 hook 后崩溃，
+把**该 App 从出事模块的作用域移除**即可止损（模块不再注入它）。
+
+在模式 10 的模块列表中选中模块 → 点「编辑选中模块的作用域」展开面板：
+
+| 操作 | 说明 |
+|------|------|
+| 重新加载作用域 | 读取并列出该模块当前注入的 App（包名 / 用户 ID） |
+| 移除选中 App | 把选中的 `包名/用户ID` 从作用域移除（**执行前二次确认**） |
+| 添加 | 把输入框中的 App（`包名/用户ID`，如 `com.example.app/0`）加入作用域 |
+
+> - 仅 **Vector / LSPosed** 框架支持作用域编辑；
+> - 包名与用户 ID 经白名单正则校验（包名限字母/数字/下划线/连字符/点，用户 ID 为非负整数），
+>   非法输入一律拒绝，杜绝命令注入；
+> - 作用域变更通常需**重启目标 App 或手机**后生效；「用户 ID」多数填 `0`（机主）。
+
+### 6.6 任务与取消
 
 - 耗时的操作（推送、提权、一键流程）会进入「任务中」状态，
   期间内容区按钮不可点，避免并发操作。
@@ -242,13 +264,14 @@ python gui\roottool.pyw
   （包括长达数十秒的 `adb push`）。
 - 命令已执行完后再点取消不再生效，属正常。
 
-### 6.6 危险操作确认
+### 6.7 危险操作确认
 
 以下操作会弹出二次确认，请务必看清提示文字再决定：
 
 - 模式 2 的「执行自定义 Shell 命令」（任意命令会直接下发到设备）；
 - 模式 5 的模块**卸载**（不可撤销，建议先「禁用」验证）；
 - 模式 7 的安全模式标记写入（不可撤销）；
+- 模式 10 的作用域移除（使该模块不再注入目标 App）；
 - 模式 11 的各类重启 / 关机。
 
 ---

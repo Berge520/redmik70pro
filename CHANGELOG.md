@@ -85,6 +85,32 @@
 - **`code/scripts/readme.txt`**：整理为规范的手动命令速查，去除重复命令、
   修正失效的个人路径引用、补全参数说明与排障。
 
+### 代码结构优化：公共 helper、逐模式去重与大文件拆分
+
+对图形工具代码做一轮系统性整理，**行为零改动**（静态检查 + 真机只读回归均通过）：
+
+- **`code/gui/main.py` 抽取公共 UI helper**：新增 `tree3`（三列 Treeview 外框 +
+  列表，统一列宽/对齐/标题）、`ops`（操作按钮栏，返回 `set_enabled` 控制器）、
+  `dark_text` / `set_dark_text`（深色预览框 + 写入）、`confirm`（统一的二次确认框）；
+  新增 `Danger.TButton` 样式；修正 `require_root()` 未使用的参数。
+- **逐模式去重**：`mode_backup / mode_logs / mode_modules / mode_status /
+  mode_selinux / mode_safemode / mode_fastboot / mode_adb / mode_reboot /
+  mode_links / mode_zygisk / mode_xposed` 统一改用上述 helper，消除重复的
+  深色预览、Treeview、按钮栏与确认框实现；统一命名；清理空 `on_device_change`
+  与重复定义的 `_sleep_cancellable`。
+- **大文件拆分**（被拆出代码落到同目录新模块，原文件保留兼容转发/继承，外部零改动）：
+  - `core.py` 的 Zygisk 段拆至 **`zygisk_core.py`**、Xposed 段拆至 **`xposed_core.py`**
+    （并一并迁移其依赖的 `valid_xposed_id`），`core.py` 通过 re-export 转发，
+    使既有 `core.xxx` 调用不变；
+  - `mode_zygisk.py` 的激活能力块拆至 **`mode_zygisk_activation.py`**
+    （`ZygiskActivationMixin`，由 `ZygiskFrame` 继承）；
+  - `mode_xposed.py` 的作用域编辑面板拆至 **`mode_xposed_scope.py`**
+    （`XposedScopeMixin`，由 `XposedFrame` 继承）；
+  - `mode_fastboot.py` 的「旧版 KernelSU 流程」折叠区构建抽为 `_build_legacy_steps()`。
+- **文档同步**：`code/README.md` 更新仓库结构树（补 4 个新模块）、新增
+  「Xposed 模块作用域编辑」小节与危险操作确认条目；`README.md`、
+  `docs/maintenance.md` 的模式 10 说明补「模块作用域编辑」。
+
 ---
 
 ## 说明

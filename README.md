@@ -123,7 +123,7 @@ Fastboot: 下发 androidboot.selinux=permissive（临时，不写入分区）
 | 7 | KernelSU 安全模式自救（进入 / 退出） | ADB + Root |
 | 8 | 模块列表备份与恢复 | ADB + Root |
 | 9 | 查看运行日志 | 无 |
-| 10 | Xposed 模块管理（Vector / LSPosed / 原始） | ADB + Root |
+| 10 | Xposed 模块管理（Vector / LSPosed / 原始）+ 模块作用域编辑 | ADB + Root |
 | 11 | 重启控制（软重启 / 完整重启 / Recovery / Fastboot / 关机） | ADB 已连接 |
 | 12 | 相关链接（本项目 / KernelSU / NeoZygisk / Zygisk Next / Vector） | 无 |
 

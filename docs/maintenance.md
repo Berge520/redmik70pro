@@ -330,7 +330,7 @@ pgrep -f zn-nsdaemon-zygote                      # 注入后派生的 zygote 守
 | ① 更新 `ksud` | 替换 `code/tools/ksud` 后重新运行 | GUI 会自动定位新文件 |
 | ⑥⑨ 软重启 | **模式 11** 重启控制 →「软重启」 | ⚠️ 不要点「完整重启」 |
 | ⑦⑩ Zygisk / Vector 状态 | **模式 6** Zygisk 崩溃修复 | 含状态检查、修复向导与「一键激活」(自动识别 NeoZygisk / Zygisk Next，补启动注入服务 + 重启双 zygote) |
-| ⑧⑩ Xposed 模块管理 | **模式 10** Xposed 模块管理 | 查询 / 禁用 / 启用 |
+| ⑧⑩ Xposed 模块管理 | **模式 10** Xposed 模块管理 | 查询 / 禁用 / 启用；另可**编辑模块作用域**（把某 App 从模块注入范围移除，止损 hook 崩溃） |
 | 全流程排障 | **模式 9** 查看运行日志 | 含底层命令输出 |
 
 > 📌 **三个修复脚本的关系**（`code/tools/` 下）：**通用** `fix_zygisk.sh` 运行时自动识别框架并分派；

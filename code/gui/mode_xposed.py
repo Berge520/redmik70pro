@@ -7,6 +7,7 @@ from tkinter import ttk, messagebox, simpledialog
 
 import core
 import main as ui
+from mode_xposed_scope import XposedScopeMixin
 
 ORIG_CONF = '/data/data/de.robv.android.xposed.installer/conf'
 ORIG_LIST = ORIG_CONF + '/modules.list'
@@ -21,7 +22,7 @@ TYPE_LABEL = {
 }
 
 
-class XposedFrame(tk.Frame):
+class XposedFrame(XposedScopeMixin, tk.Frame):
     def __init__(self, parent, app):
         super().__init__(parent, bg=ui.C_BG)
         self.app = app
@@ -58,25 +59,30 @@ class XposedFrame(tk.Frame):
         ui.button(bar, '检测 Root', self.check_root_btn)
 
         # 模块列表
-        self.tree = ttk.Treeview(inner, columns=('mod', 'state'), show='headings',
-                                 height=8)
-        self.tree.heading('mod', text='模块（包名 / 标识）')
-        self.tree.heading('state', text='状态')
-        self.tree.column('mod', width=520, minwidth=200, anchor='w', stretch=True)
-        self.tree.column('state', width=140, minwidth=100, anchor='w', stretch=False)
-        self.tree.pack(fill='both', expand=True, pady=(10, 0))
+        box, self.tree = ui.tree3(
+            inner, ('mod', 'state'), ('模块（包名 / 标识）', '状态'),
+            ((520, 200, 'w'), (140, 100, 'w')), height=8)
+        box.pack(fill='both', expand=True, pady=(10, 0))
 
         # 操作
         op = tk.Frame(inner, bg=ui.C_PANEL)
         op.pack(fill='x', pady=(10, 0))
         self.btn_disable = ttk.Button(op, text='禁用选中模块', command=self.disable_selected)
-        self.btn_disable.pack(side='left', padx=(0, 8), pady=4)
-        self.btn_disable.state(['disabled'])
         self.btn_enable = ttk.Button(op, text='启用选中模块', command=self.enable_selected)
-        self.btn_enable.pack(side='left', padx=(0, 8), pady=4)
-        self.btn_enable.state(['disabled'])
+        self.btn_scope = ttk.Button(op, text='编辑选中模块的作用域',
+                                    command=self.edit_scope_selected)
+        self._set_ops = ui.ops(op, (self.btn_disable, 'plain'),
+                               (self.btn_enable, 'plain'))
+        self.btn_scope.pack(side='left', padx=(0, 8), pady=4)
+        self.btn_scope.state(['disabled'])
         ui.button(op, '手动输入包名操作', self.manual)
         self.tree.bind('<<TreeviewSelect>>', self._on_select)
+
+        # 作用域编辑区（默认隐藏，点击「编辑选中模块的作用域」后展开）。
+        # 作用域 = 该模块会注入哪些 App；某 App 崩溃时，把对应模块从它的作用域
+        # 移除即可止损（如 123云盘 被 hook 模块注入后崩溃）。
+        self.scope_box = tk.Frame(inner, bg=ui.C_PANEL)
+        self._build_scope_box()
 
         self._enable_ops(False)
 
@@ -85,20 +91,20 @@ class XposedFrame(tk.Frame):
             self.detect()
 
     def _on_select(self, _event):
-        has = bool(self.tree.selection())
-        if has:
-            self.btn_disable.state(['!disabled'])
-            self.btn_enable.state(['!disabled'])
+        if self.tree.selection():
+            self._enable_ops(True)
         else:
             self._enable_ops(False)
 
     def _enable_ops(self, on):
-        if on:
-            self.btn_disable.state(['!disabled'])
-            self.btn_enable.state(['!disabled'])
+        self._set_ops(plain=on)
+        if on and self.xp_type in (core.XP_VECTOR, core.XP_LSPOSED) and self.cli_path:
+            # 作用域编辑仅 Vector/LSPosed（有 CLI）可用；原始 Xposed 无 scope 概念。
+            self.btn_scope.state(['!disabled'])
         else:
-            self.btn_disable.state(['disabled'])
-            self.btn_enable.state(['disabled'])
+            self.btn_scope.state(['disabled'])
+            if not on:
+                self._hide_scope_box()
 
     # -----------------------------------------------------------
     def check_root_btn(self):
@@ -334,7 +340,7 @@ class XposedFrame(tk.Frame):
                                  '模块标识 [%s] 不合法，已拒绝执行。' % mod)
             self.app.log_out('[拒绝操作] 模块标识不合法：%s' % mod)
             return
-        if not messagebox.askyesno(
+        if not ui.confirm(
                 '确认%s' % action,
                 '即将%s模块：\n\n  %s\n\n操作重启手机后生效，是否继续？' % (action, mod)):
             return
