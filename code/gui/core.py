@@ -62,7 +62,7 @@ _TOOL_DIRS = (ROOT_DIR, os.path.join(ROOT_DIR, 'tools'))
 
 # 应用的显示名称 / 版本，集中定义避免各处漂移。
 APP_NAME = '小米/红米 临时Root 专业工具'
-APP_VERSION = 'v0.0.1'
+APP_VERSION = 'v0.0.2'
 APP_TITLE = '%s %s' % (APP_NAME, APP_VERSION)
 
 # 隐藏子进程黑窗（Windows）

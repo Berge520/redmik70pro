@@ -4,6 +4,59 @@
 
 ---
 
+## v0.0.2
+
+代码结构优化与启动链路修复。**本版为纯内部重构 + 缺陷修复，界面功能与操作方式相对
+`v0.0.1` 无变化**，升级后使用体验一致（升级可直接替换 `RootTool.exe`）。
+
+### 修复
+
+- **提权重启单实例互杀**（`gui/roottool.pyw` / `gui/single_instance.py`）：
+  以管理员身份提权重启时，新实例与尚未退出的旧实例会互相争抢单实例锁，
+  导致新窗口起不来或旧窗口被误关。现在带 `--elevated` 标记启动的实例会
+  跳过单实例询问，并等待旧实例释放锁后再接管，二者不再互相打断；
+  同时把 pid 与提权状态登记进注册表，便于准确识别真实在跑的实例。
+- **打包版退出时临时目录占用告警**（`packaging/RootTool.spec`）：
+  PyInstaller 单文件模式退出时偶发“临时目录无法删除”提示，现支持固定
+  `runtime_tmpdir`，规避该告警。
+
+### 代码结构优化：公共 helper、逐模式去重与大文件拆分
+
+对图形工具代码做一轮系统性整理。**行为零改动**（静态检查 + 真机只读回归均通过）：
+
+- **`code/gui/main.py` 抽取公共 UI helper**：新增 `tree3`（三列 Treeview 外框 +
+  列表，统一列宽/对齐/标题）、`ops`（操作按钮栏，返回 `set_enabled` 控制器）、
+  `dark_text` / `set_dark_text`（深色预览框 + 写入）、`confirm`（统一的二次确认框）；
+  新增 `Danger.TButton` 样式；修正 `require_root()` 未使用的参数。
+- **逐模式去重**：`mode_backup / mode_logs / mode_modules / mode_status /
+  mode_selinux / mode_safemode / mode_fastboot / mode_adb / mode_reboot /
+  mode_links / mode_zygisk / mode_xposed` 统一改用上述 helper，消除重复的
+  深色预览、Treeview、按钮栏与确认框实现；统一命名；清理空 `on_device_change`
+  与重复定义的 `_sleep_cancellable`。
+- **大文件拆分**（被拆出代码落到同目录新模块，原文件保留兼容转发/继承，外部零改动）：
+  - `core.py` 的 Zygisk 段拆至 **`zygisk_core.py`**、Xposed 段拆至 **`xposed_core.py`**
+    （并一并迁移其依赖的 `valid_xposed_id`），`core.py` 通过 re-export 转发，
+    使既有 `core.xxx` 调用不变；
+  - `mode_zygisk.py` 的激活能力块拆至 **`mode_zygisk_activation.py`**
+    （`ZygiskActivationMixin`，由 `ZygiskFrame` 继承）；
+  - `mode_xposed.py` 的作用域编辑面板拆至 **`mode_xposed_scope.py`**
+    （`XposedScopeMixin`，由 `XposedFrame` 继承）；
+  - `mode_fastboot.py` 的「旧版 KernelSU 流程」折叠区构建抽为 `_build_legacy_steps()`。
+- **显式公开边界**：为 `zygisk_core` / `xposed_core` 补 `__all__`，限定
+  `from ... import *` 的导出范围，避免 `re` / `time` 等模块级名字泄漏到 `core`
+  命名空间；清单与 `core.py` 的显式转发 import 严格对齐（纯声明性改动）。
+
+### 文档
+
+- **`code/README.md`**：更新仓库结构树（补 `zygisk_core.py` / `xposed_core.py` /
+  `mode_zygisk_activation.py` / `mode_xposed_scope.py` 四个新模块及转发/继承关系）；
+  新增「Xposed 模块作用域编辑」操作说明；危险操作确认清单补「作用域移除」。
+- **`README.md`** / **`docs/maintenance.md`**：模式 10 说明补「模块作用域编辑」。
+- **`CHANGELOG.md`**：新增本版记录。
+- 版本号由 `v0.0.1` 升为 `v0.0.2`。
+
+---
+
 ## v0.0.1
 
 初版。在原命令行方案基础上补齐 GUI 工具与文档。
