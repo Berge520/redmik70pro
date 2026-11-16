@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- 深色底 -->
+    <path
+        android:fillColor="#1B1F24"
+        android:pathData="M0,0h108v108h-108z" />
+    <!-- 齿轮/盾牌轮廓：外圈 -->
+    <path
+        android:fillColor="#4CC2FF"
+        android:pathData="M54,24 L78,33 L78,55 C78,69 68,79 54,84 C40,79 30,69 30,55 L30,33 Z" />
+    <path
+        android:fillColor="#1B1F24"
+        android:pathData="M54,32 L70,38 L70,55 C70,64 63,72 54,76 C45,72 38,64 38,55 L38,38 Z" />
+    <!-- 中间对勾 -->
+    <path
+        android:fillColor="#4CC2FF"
+        android:pathData="M46,54 L52,60 L63,47 L66,50 L52,67 L43,57 Z" />
+</vector>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Zygisk 修复</string>
+    <string name="btn_fix">一键激活</string>
+    <string name="btn_check">仅检测</string>
+    <string name="btn_save">存日志</string>
+    <string name="hint">点「一键激活」= 启动 Zygisk → 重建 zygote → 验证 Vector/LSPosed。过程中屏幕会黑一下、桌面重启，约 10~30 秒，属正常。本机是临时 root，重启手机需重新越狱——所以修复时请勿重复点击、勿手动重启。</string>
+    <string name="running">执行中…</string>
+    <string name="running_hint">执行中…（屏幕可能黑一下，请勿离开本页，勿重复点击）</string>
+    <string name="need_root">没有 root，只做检测</string>
+    <string name="repo_url">https://github.com/Berge520/redmik70pro</string>
+    <string name="repo_label">项目仓库：%s</string>
+    <string name="repo_open_failed">没有可用的浏览器</string>
+</resources>

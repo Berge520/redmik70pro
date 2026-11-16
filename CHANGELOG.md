@@ -4,6 +4,55 @@
 
 ---
 
+## v0.0.3
+
+新增手机端一键激活 APK `ZygiskFix`，图形工具补充机型适配提示。
+
+### 新增：手机端 App（`code/apk/`）
+
+- **`ZygiskFix.apk`（v1.2.8）**：安装到手机后点「一键激活」，即可修复临时 Root
+  重新越狱后 Zygisk / Vector / LSPosed 显示「未激活」的问题。
+  内置 `fix.sh` 与 `code/tools/activate_remote.sh` 逻辑一致，只是去掉交互；
+  另有「仅检测」入口用于只读排查。首次点击会请求 KernelSU root 授权
+  （隐藏模式下需到管理器里手动勾选，见新增文档）。
+- **免 Gradle 构建**：`build.cmd`（Windows）/ `build.sh`（Linux、macOS）直接用
+  aapt2 + javac + d8 + zipalign + apksigner 打包；缺 `debug.keystore` 时自动生成。
+  版本号唯一维护点是 `AndroidManifest.xml` 的 `versionName` / `versionCode`。
+
+### 新增：图形工具机型适配提示
+
+- **`ui.adapt_note()` 横幅**（`gui/main.py`）：橙色边框标注「仅适配红米 K70 Pro」，
+  已挂到 ADB 提权、Fastboot 提权、SELinux、Zygisk/Xposed 激活四个危险模式页。
+- **`core.k70_adapter()`**（`gui/core.py`）：读 `ro.product.model` 等属性判断机型，
+  ADB 模式加载时在日志区给出「已识别 / 非 K70 Pro 请勿执行」提示。
+
+### 修复
+
+- **模块列表刷新后按钮状态调用失败**（`gui/mode_modules.py`）：
+  刷新列表时仍按旧接口传三个位置参数调用 `_set_ops(False, False, False)`，
+  而该控制器已被重构为仅接受关键字参数（`plain` / `danger`），调用会抛错；
+  改为无参调用 `_set_ops()`，与「未选中时全部禁用」的语义一致。
+
+### 构建与持续集成
+
+- **`build.yml` 同时产出发行包**：Windows job 追加 APK 构建、`apksigner` 签名校验、
+  artifact 上传，并在 tag 触发时把 `ZygiskFix.apk` 一并挂到 Release。
+- **新增 PR 校验 job**：改动 `code/apk/**` 或 workflow 的 PR 只跑 Linux 侧 APK 构建
+  与签名校验（显式安装 build-tools 36 / platform 37），不碰 exe 与 Release。
+- **`.gitignore`**：忽略 APK 构建产物（`code/apk/build/`、`code/apk/dist/`）、
+  本地 `debug.keystore` 与仓库根目录的 `ZygiskFix.apk`，并新增 `.tmp/` 排查临时目录。
+
+### 文档
+
+- **新增 `docs/kernelsu-auth-and-activation.md`**：KernelSU 隐藏模式手动授权、
+  一键激活时间线、激活后复检与操作坑位（含「先装 APK 再激活」铁律）。
+- **新增 `code/tools/activate_remote.sh`**：PC 侧 adb 远程版激活脚本（交互式）。
+- `docs/maintenance.md` 补「先装 APK → 再激活 → 激活后不装」的警告；
+  `docs/troubleshooting.md` 补新文档入口。
+- 版本号由 `v0.0.2` 升为 `v0.0.3`。
+
+---
+
 ## v0.0.2
 
 代码结构优化与启动链路修复。**本版为纯内部重构 + 缺陷修复，界面功能与操作方式相对

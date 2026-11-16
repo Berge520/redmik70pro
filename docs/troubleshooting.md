@@ -477,6 +477,7 @@ su -c 'rm -rf /data/adb/zygisksu'
 
 - [维护指南](maintenance.md) — 组件更新与日常维护流程
 - [多实例排查记录](zygisk-monitor-multi-instance.md) — monitor 进程堆积问题
+- [KernelSU 授权 + 一键激活实录](kernelsu-auth-and-activation.md) — 隐藏模式手授 root、激活时间线、操作坑位
 
 ---
 

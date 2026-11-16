@@ -26,6 +26,9 @@ class FastbootFrame(tk.Frame):
                   '使系统以宽松模式启动后完成提权。\n'
                   '新版 KernelSU 通常只需 [1]→[3]，之后在管理器点「越狱」即可。')
 
+        ui.adapt_note(inner, '步骤 2 使用的 fastboot oem 命令是小米机型专属参数，'
+                             '仅在红米 K70 Pro 上验证；其他品牌手机执行可能无响应或导致启动异常，请勿尝试。')
+
         # 顶部一键流程
         top = tk.Frame(inner, bg=ui.C_PANEL)
         top.pack(fill='x', pady=(0, 10))

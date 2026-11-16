@@ -207,6 +207,11 @@ adb shell su -c id     # 期望输出 uid=0(root)
    - 已装旧版 → 先**卸载旧版**，再刷新版(或直接覆盖)；
 3. **记住优先级**：Vector 依赖 Zygisk → **先装好 Zygisk，再装 Vector**。
 
+> [!WARNING]
+> **`ZygiskFix` 必须在这一步装完，越早越好。** 已激活（Zygisk 运行中）状态下安装 APK
+> 会打穿 swap 导致**整机重启、临时 root 丢失**。顺序铁律：**先装 APK（未注入）→ 再激活 → 激活后绝不安装**。
+> 详见 [kernelsu-auth-and-activation.md](kernelsu-auth-and-activation.md) 铁律 2。
+
 > [!IMPORTANT]
 > **切换/更新框架后先重启再判定类型**：切换 NeoZygisk ↔ Zygisk Next 时，
 > `module.prop` 会被**立即覆盖**，但 `bin/` 与脚本要**重启后由 KernelSU 从模块镜像重新部署**才生效。

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  版本号规范（唯一维护点就是下面这两个属性，别处不要再硬编码）：
+    android:versionName —— 展示给用户的语义化版本，格式 MAJOR.MINOR.PATCH
+        MAJOR  流程/判据有破坏性变更（如换了注入方式），老版本行为不再适用
+        MINOR  新增功能或防护（如新增内存闸门、已激活拦截）
+        PATCH  仅修 bug、改文案
+    android:versionCode —— 给系统/商店比较大小的整数，必须单调递增，
+        否则 adb install -r 会被判为降级而失败。约定：
+        versionCode = MAJOR * 10000 + MINOR * 100 + PATCH
+        例：1.0.0 -> 10000，1.2.0 -> 10200，1.2.3 -> 10203
+
+  界面上显示的版本取自 PackageManager，与这里自动保持一致，无需另改代码。
+  发版时只改这两行，同时把 versionName 同步到 CHANGELOG 即可。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.redmik70pro.zygiskfix"
+    android:versionCode="10208"
+    android:versionName="1.2.8">
+
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+
+    <!-- 只在需要时申请 root，不申请 INTERNET，保持纯净 -->
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:supportsRtl="true"
+        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

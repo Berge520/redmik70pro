@@ -932,6 +932,17 @@ def header(parent, title, subtitle=''):
     return box
 
 
+def adapt_note(parent, text='仅适配红米 K70 Pro，其他机型请勿使用该功能。'):
+    """机型适配横幅：橙色边框 + 标签，用于标注仅 K70 Pro 可用的功能。"""
+    row, body = card(parent, accent=C_WARN, fill=C_CARD, pad=(10, 7))
+    row.pack(fill='x', pady=(0, 10))
+    tk.Label(body, text='! 机型适配', bg=C_CARD, fg=C_WARN,
+             font=FONT_BOLD).pack(side='left')
+    tk.Label(body, text=text, bg=C_CARD, fg=C_MUTED, font=FONT_SMALL,
+             wraplength=640, justify='left').pack(side='left', padx=(8, 0))
+    return row
+
+
 def button(parent, text, command, accent=False):
     btn = ttk.Button(parent, text=text, command=command,
                      style='Accent.TButton' if accent else 'TButton')

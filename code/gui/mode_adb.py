@@ -27,6 +27,9 @@ class AdbFrame(tk.Frame):
                   '利用设备已开启的 USB 调试，通过 service call 漏洞加载 ksud 获取临时 Root。\n'
                   '注意：Android 14+ 上该漏洞可能已修复，提权不一定成功。')
 
+        ui.adapt_note(inner, 'ADB 提权依赖 MIUI/HyperOS 的 mqsas 服务漏洞，'
+                             '仅在红米 K70 Pro 上验证通过；其他机型调用可能失败或引发系统异常。')
+
         self.lbl_dev = ttk.Label(inner, text='设备状态：检测中...', style='Panel.TLabel')
         self.lbl_dev.pack(anchor='w', pady=(0, 4))
         self.lbl_sdk = ttk.Label(inner, text='', style='Muted.TLabel')
@@ -68,9 +71,11 @@ class AdbFrame(tk.Frame):
 
     def _load_sdk(self):
         def job(_ctl):
-            return core.getprop(self.app.runner, 'ro.build.version.sdk')
+            return (core.getprop(self.app.runner, 'ro.build.version.sdk'),
+                    core.k70_adapter(self.app.runner))
 
-        def done(sdk):
+        def done(data):
+            sdk, (k70, model) = data
             # on_done 在后台线程执行，必须经 ui_call 调度回主线程再改控件
             def apply():
                 if not ui.widget_alive(self.lbl_sdk):
@@ -81,6 +86,12 @@ class AdbFrame(tk.Frame):
                     self.lbl_sdk.configure(text='SDK 版本：%s %s' % (sdk, note))
                 else:
                     self.lbl_sdk.configure(text='SDK 版本：读取失败')
+                if k70:
+                    self.app.log_out('[机型] 已识别：%s，属于红米 K70 Pro。' % model)
+                else:
+                    self.app.log_out('[警告] 当前机型为 %s，不是红米 K70 Pro。'
+                                     '本工具的提权功能未在该机型验证，'
+                                     '请勿执行，否则可能导致手机无法开机。' % model)
             self.app.ui_call(apply)
 
         core.Task(job, on_done=done).start()

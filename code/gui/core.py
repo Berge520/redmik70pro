@@ -62,7 +62,7 @@ _TOOL_DIRS = (ROOT_DIR, os.path.join(ROOT_DIR, 'tools'))
 
 # 应用的显示名称 / 版本，集中定义避免各处漂移。
 APP_NAME = '小米/红米 临时Root 专业工具'
-APP_VERSION = 'v0.0.2'
+APP_VERSION = 'v0.0.3'
 APP_TITLE = '%s %s' % (APP_NAME, APP_VERSION)
 
 # 隐藏子进程黑窗（Windows）
@@ -457,6 +457,33 @@ def find_ksud():
 EXPLOIT_CMD = ('service call miui.mqsas.IMQSNative 21 i32 1 '
                's16 /data/local/tmp/ksud i32 1 s16 late-load '
                's16 /sdcard/ksulog.txt i32 60')
+
+
+# ---------------------------------------------------------------
+#  机型适配标注
+# ---------------------------------------------------------------
+# 本工具的全部漏洞链与服务调用只在红米 K70 Pro 上实测过。
+# getprop 列举的多种属性任一命中即视为 K70 Pro（不同系统版本属性值不一），
+# 任一项不符就给出告警，提示用户相关功能对其他机型不保证可用。
+K70_PRO_MARKERS = ('2211133C', 'vermeer', 'K70 Pro')
+
+K70_ADAPT_NOTE = ('本功能仅在红米 K70 Pro 上验证；'
+                  '其他机型可能不支持或出现异常，操作前请自行评估风险。')
+
+
+def k70_adapter(runner):
+    """读取设备型号，返回 (是否确定为 K70 Pro, 型号描述字符串)。"""
+    keys = ('ro.product.model', 'ro.product.device',
+            'ro.product.marketname', 'ro.product.vendor.model')
+    parts = []
+    for key in keys:
+        val = getprop(runner, key, timeout=10)
+        if val and val not in parts:
+            parts.append(val)
+    desc = ' / '.join(parts) or '未知机型'
+    low = desc.lower()
+    matched = any(m.lower() in low for m in K70_PRO_MARKERS)
+    return matched, desc
 
 
 def is_root(runner):

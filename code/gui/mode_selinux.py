@@ -22,6 +22,9 @@ class SelinuxFrame(tk.Frame):
                   'Permissive（宽松）会放宽强制访问控制，便于调试但存在安全风险；\n'
                   'Enforcing（强制）为正常安全状态。Fastboot 下发的参数仅本次启动有效。')
 
+        ui.adapt_note(inner, 'Fastboot 下发参数使用的是小米专属 oem 命令，'
+                             '仅适配红米 K70 Pro；其他机型切换可能无效。ADB 方式（setenforce）无此限制。')
+
         # 当前状态卡：stat() 返回 (外框, 数值标签)，数值标签即需更新的控件。
         self.state_box, self.lbl_state = ui.stat(
             inner, '当前 SELinux 状态', value='—', color=ui.C_TEXT)

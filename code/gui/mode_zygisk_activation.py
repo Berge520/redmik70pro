@@ -29,6 +29,8 @@ class ZygiskActivationMixin:
     def _build_activation(self, inner):
         """构建「Zygisk / Xposed 激活」区块控件。"""
         ui.section(inner, 'Zygisk / Xposed 激活', '临时 Root 重越狱后必做')
+        ui.adapt_note(inner, '激活依赖 late-load 临时 Root，且按红米 K70 Pro 的'
+                             '服务路径与开机流程验证；其他机型可能无法激活或重启 zygote 失败。')
         # 通用说明：适用于 NeoZygisk 与 Zygisk Next 两种框架。
         tk.Label(inner, text='临时 Root(late-load)重越狱后 Zygisk 注入服务不会自启，'
                              '导致 Vector / LSPosed 等框架显示「未激活」。点「一键激活」按序执行：'

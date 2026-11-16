@@ -1,4 +1,4 @@
-name: Build RootTool.exe
+﻿name: Build RootTool.exe and ZygiskFix.apk
 
 on:
   # 手动触发：Actions 页面点「Run workflow」即可打包
@@ -7,6 +7,12 @@ on:
   push:
     tags:
       - 'v*'
+  # 改动手机端 APK 源码的 PR 也跑一遍，防止合并后才发现编译不过
+  pull_request:
+    branches: [main]
+    paths:
+      - 'code/apk/**'
+      - '.github/workflows/build.yml'
 
 permissions:
   contents: write   # 打 tag 时创建 Release 需要写权限
@@ -19,7 +25,8 @@ concurrency:
 jobs:
   build:
     runs-on: windows-latest
-
+    # PR 只验证 APK，exe 打包与 Release 都在非 PR 时做（PR 无写权限）
+    if: github.event_name != 'pull_request'
     steps:
       - name: 检出源码
         uses: actions/checkout@v5
@@ -56,16 +63,51 @@ jobs:
           path: code/dist/RootTool.exe
           if-no-files-found: error
 
+      # ---- 手机端 APK：复用项目自带的 build.cmd，不引 Gradle，构建只需几秒 ----
+      - name: 构建手机端 APK（ZygiskFix.apk）
+        shell: cmd
+        working-directory: code/apk
+        run: |
+          call build.cmd "%ANDROID_HOME%"
+          if errorlevel 1 exit /b 1
+
+      - name: 校验 APK 已签名
+        working-directory: code/apk
+        run: |
+          $apk = "dist\ZygiskFix.apk"
+          if (!(Test-Path $apk)) {
+            Write-Error "构建失败：未生成 $apk"
+            exit 1
+          }
+          & "$env:ANDROID_HOME\build-tools\36.0.0\apksigner.bat" verify --verbose $apk
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "APK 签名校验失败"
+            exit 1
+          }
+          Get-Item $apk | Select-Object Name, Length
+
+      - name: 上传 APK（artifact）
+        uses: actions/upload-artifact@v6
+        with:
+          name: ZygiskFix-apk
+          path: code/apk/dist/ZygiskFix.apk
+          if-no-files-found: error
+
       - name: 发布 Release（仅 tag 触发时）
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v3
         with:
-          files: code/dist/RootTool.exe
+          files: |
+            code/dist/RootTool.exe
+            code/apk/dist/ZygiskFix.apk
           generate_release_notes: true
           body: |
             ## 下载
 
             - **`RootTool.exe`**（新方案 · 图形工具，推荐）：本页下方 Assets 处下载，双击即用。
+            - **`ZygiskFix.apk`**（手机端 · 一键修复 Zygisk/Vector 未激活）：
+              直接安装到手机，点「一键激活」即可。首次点击会请求 root 授权；
+              临时 Root 每次重新越狱后需再点一次。
             - **附件包**（旧方案 · 命令行所需载荷，Release 文件名显示为 `fujian.zip`）：
               该附件为固定的第三方组件快照，
               **仅随首个版本（`v0.0.1`）发布一次**，请到
@@ -74,3 +116,44 @@ jobs:
               Xposed 框架（Vector）、热重启模块、`fix_lspd.sh`（历史别名）。
 
             > 旧方案为可选的历史用法；日常使用请优先选择图形工具 `RootTool.exe`。
+
+  # 改动 APK 源码的 PR：只跑 APK 构建，无需 Windows 与 Python 环境
+  apk:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v5
+
+      - name: 安装 JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # runner 镜像预装 SDK，但 build-tools 36 / platform 37 不一定存在，先显式安装。
+      # sdkmanager 需要接受 license，用 yes 管道喂给它。
+      - name: 安装 Android 构建工具（aapt2 / d8 / apksigner）
+        run: |
+          yes | "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" \
+            "build-tools;36.0.0" "platforms;android-37.0"
+
+      - name: 构建并签名 APK
+        working-directory: code/apk
+        run: |
+          chmod +x build.sh
+          ./build.sh "${ANDROID_HOME}"
+
+      - name: 校验 APK
+        working-directory: code/apk
+        run: |
+          ${ANDROID_HOME}/build-tools/36.0.0/apksigner verify --verbose dist/ZygiskFix.apk
+          ls -l dist/ZygiskFix.apk
+
+      - name: 上传 APK（artifact）
+        uses: actions/upload-artifact@v6
+        with:
+          name: ZygiskFix-apk-pr
+          path: code/apk/dist/ZygiskFix.apk
+          if-no-files-found: error

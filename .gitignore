@@ -27,6 +27,15 @@ code/dist/
 # 根目录旧版遗留成品（已废弃，构建产物见 code/dist/，不入库）
 /RootTool.exe
 
+# 手机端 APK 构建产物与本地签名文件（由 GitHub Actions 产出）
+code/apk/build/
+code/apk/dist/
+code/apk/debug.keystore
+/ZygiskFix.apk
+
 # 旧方案（命令行）的必需载荷包：体积过大（约 23MB）不宜入库，
 # 改随 GitHub Releases 分发（见 README「获取所需文件」与 docs/troubleshooting.md）。
 附件.zip
+
+# 排查用的临时文件（截图、采样脚本/日志等），用完即删，不入库
+.tmp/

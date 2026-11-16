@@ -138,7 +138,7 @@ class ModulesFrame(tk.Frame):
         n_dis = sum(1 for _, _, s in items if s == 'disabled')
         self.lbl_count.configure(
             text='共 %d 个模块（已禁用 %d 个）' % (len(items), n_dis))
-        self._set_ops(False, False, False)
+        self._set_ops()
 
     def copy_name(self):
         folder = self._selected_folder()
