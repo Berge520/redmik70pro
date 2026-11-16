@@ -671,8 +671,9 @@ public class MainActivity extends Activity {
         }
         if (p == null) {
             return new Result("✗ 无法获得 root 权限", Color.parseColor("#C62828"),
-                    "本应用没有被授予 root。请打开 KernelSU/APatch/Magisk 管理器，"
-                            + "在「超级用户」里把「Zygisk 修复」设为允许（或先点一次本应用触发授权弹窗）后重试。\n"
+                    "本应用没有被授予 root。请打开 KernelSU 管理器，"
+                            + "在「超级用户」里找到「Zygisk 修复」，手动打开授权开关后重试"
+                            + "（KernelSU 不会自动弹出授权窗口）。\n"
                             + "已尝试的入口：\n  " + join(failed, "\n  "));
         }
 
@@ -725,7 +726,8 @@ public class MainActivity extends Activity {
             if (marker[0] == null) {
                 if (exit != 0) {
                     return new Result("✗ root 授权被拒绝", Color.parseColor("#C62828"),
-                            "su 退出码=" + exit + "。请在 KernelSU 管理器里允许本应用使用 root 后重试。");
+                            "su 退出码=" + exit + "。请打开 KernelSU 管理器，"
+                                    + "在「超级用户」里手动允许「Zygisk 修复」使用 root 后重试。");
                 }
                 return new Result("✗ 脚本没有给出结论", Color.parseColor("#C62828"),
                         "请把上面的日志反馈给开发者。");

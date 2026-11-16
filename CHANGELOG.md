@@ -13,8 +13,9 @@
 - **`ZygiskFix.apk`（v1.2.8）**：安装到手机后点「一键激活」，即可修复临时 Root
   重新越狱后 Zygisk / Vector / LSPosed 显示「未激活」的问题。
   内置 `fix.sh` 与 `code/tools/activate_remote.sh` 逻辑一致，只是去掉交互；
-  另有「仅检测」入口用于只读排查。首次点击会请求 KernelSU root 授权
-  （隐藏模式下需到管理器里手动勾选，见新增文档）。
+  另有「仅检测」入口用于只读排查。**KernelSU 不会弹出授权窗口**，需到管理器
+  「超级用户」里手动为「Zygisk 修复」打开授权开关（隐藏模式下 App 自发 `su` 会被拒，
+  见新增文档）。
 - **免 Gradle 构建**：`build.cmd`（Windows）/ `build.sh`（Linux、macOS）直接用
   aapt2 + javac + d8 + zipalign + apksigner 打包；缺 `debug.keystore` 时自动生成。
   版本号唯一维护点是 `AndroidManifest.xml` 的 `versionName` / `versionCode`。

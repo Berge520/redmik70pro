@@ -148,8 +148,10 @@ Fastboot: 下发 androidboot.selinux=permissive（临时，不写入分区）
 
 > ⚠️ **`ZygiskFix.apk` 要尽早装，且装完再激活**：在已激活（Zygisk 运行中）时安装 APK
 > 可能打穿 swap 导致**整机重启、临时 Root 丢失**。顺序：**先装 APK（未注入）→ 再激活 → 激活后尽量不再装**。
-> 首次点「一键激活」会请求 root 授权；KernelSU 隐藏模式下 App 自己发起 `su` 会被拒，
-> 需到管理器里手动勾选（见 [KernelSU 授权与激活实录](docs/kernelsu-auth-and-activation.md)）。
+> 首次点「一键激活」**不会出现授权弹窗**：KernelSU（尤其隐藏模式）不响应 App 自己发起的 `su` 请求，
+> 需自行打开 KernelSU 管理器 →「超级用户」→ 找到「Zygisk 修复」→ **手动打开授权开关**，
+> 之后回 App 点「仅检测」确认第一行为 `[App] 使用 su` 即可。详见
+> [KernelSU 授权与激活实录](docs/kernelsu-auth-and-activation.md)。
 > 临时 Root 每次重新越狱后，都需要再点一次「一键激活」。
 
 **附件包内容一览**：
