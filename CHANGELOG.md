@@ -4,6 +4,22 @@
 
 ---
 
+## v0.0.4
+
+修正文档与 APK 内关于 KernelSU root 授权的错误说明。
+
+### 修复
+
+- **授权说明纠正**：KernelSU（尤其隐藏模式）不响应 App 自发的 `su` 请求，
+  **不会出现授权弹窗**。README、Release 说明与 App 内提示原先写成「会请求 / 触发授权弹窗」，
+  与 [KernelSU 授权与激活实录](docs/kernelsu-auth-and-activation.md) 的结论矛盾。
+  现已统一为：到 KernelSU 管理器「超级用户」里手动为「Zygisk 修复」打开授权开关，
+  再回 App 点「仅检测」确认第一行为 `[App] 使用 su`。
+- **`ZygiskFix.apk` 升至 v1.2.9（10209）**：失败提示改为引导手动授权，
+  并说明 KernelSU 不会自动弹出授权窗口。
+
+---
+
 ## v0.0.3
 
 新增手机端一键激活 APK `ZygiskFix`，图形工具补充机型适配提示。
