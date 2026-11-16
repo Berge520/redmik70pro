@@ -37,6 +37,11 @@ code/
 │  ├─ mode_xposed_scope.py    └ 作用域编辑能力块（XposedScopeMixin，由 mode_xposed 继承）
 │  ├─ mode_reboot.py          模式 11  重启控制
 │  └─ mode_links.py           模式 12  相关链接（GitHub 项目与依赖）
+├─ apk/                       手机端 App：ZygiskFix（一键激活 Zygisk / Vector）
+│  ├─ build.cmd               Windows 手工构建（aapt2 + javac + d8 + apksigner，无 Gradle）
+│  ├─ build.sh                Linux / macOS 手工构建（CI 的 ubuntu runner 使用）
+│  └─ src/main/               AndroidManifest（版本号唯一维护点）/ java / res / assets
+│     └─ assets/fix.sh        内置激活脚本（与 tools/activate_remote.sh 同逻辑，去交互）
 ├─ tools/                     运行必需的二进制与脚本
 │  ├─ adb.exe                 Android 调试桥
 │  ├─ fastboot.exe            Fastboot 命令行
@@ -44,6 +49,7 @@ code/
 │  ├─ AdbWinUsbApi.dll        adb.exe 依赖
 │  ├─ libwinpthread-1.dll     fastboot.exe 依赖
 │  ├─ ksud                    KernelSU 提权载荷（push 至设备执行）
+│  ├─ activate_remote.sh      经 adb 远程执行的一键激活脚本（PC 侧，交互式）
 │  ├─ fix_zygisk.sh           通用注入修复脚本（运行时自动识别 NeoZygisk / Zygisk Next 并分派）
 │  ├─ fix_neozygisk.sh        NeoZygisk 专用注入修复脚本（命令按 zygisk-ptrace64 monitor 硬编码）
 │  ├─ fix_zygisknext.sh       Zygisk Next 专用注入修复脚本（命令按 ./bin/zygiskd daemon 硬编码）

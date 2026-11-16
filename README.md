@@ -34,6 +34,7 @@
 | 方式 | 获取 | 说明 |
 |--|--|--|
 | **A（推荐）** | 到本仓库 **Releases** 页下载 `RootTool.exe`（由 GitHub Actions 构建；也可按 [code/README.md](code/README.md) 本地自行构建） | 单文件免安装，放到任意位置**双击即用**，无需另放 `adb.exe` / `fastboot.exe` / `ksud` |
+| **A'（手机端）** | 在同一 Releases 页下载 `ZygiskFix.apk`，安装到手机 | 一键修复临时 Root 重越狱后 Zygisk / Vector「未激活」，见[获取所需文件](#-获取所需文件) |
 | B | 源码运行 | 需 Python 3.8+，见 [code/README.md](code/README.md) |
 
 > ⚠️ exe 已**内嵌** `adb.exe` / `fastboot.exe` / `ksud` 等二进制，**无需**与工具文件放同一目录，
@@ -58,7 +59,7 @@
 | 顺序 | 模式 | 操作 | 目的 |
 |--|--|--|--|
 | ① | **模式 4 · SELinux 模式切换** | 恢复 `Enforcing` | 越狱成功后按需恢复强制模式，提升安全性 |
-| ② | **模式 6 · Zygisk / Xposed 一键激活** | 点「一键激活」 | **重越狱后（装 Zygisk/Vector 时）必做**：自动识别 NeoZygisk / Zygisk Next，以正确 CWD 补启动 monitor（NeoZygisk：`zygisk-ptrace64 monitor`；Zygisk Next：`./bin/zygiskd daemon`）+ 重启 zygote64，并按框架分派校验注入 |
+| ② | **模式 6 · Zygisk / Xposed 一键激活** | 点「一键激活」 | **重越狱后（装 Zygisk/Vector 时）必做**：自动识别 NeoZygisk / Zygisk Next，以正确 CWD 补启动 monitor（NeoZygisk：`zygisk-ptrace64 monitor`；Zygisk Next：`./bin/zygiskd daemon`）+ 重启 zygote64，并按框架分派校验注入。**也可改用手机端 `ZygiskFix` App 点「一键激活」**，逻辑一致，无需连电脑 |
 | ③ | **模式 5 / 10** | 按需 | 管理 Root 模块 / Xposed 模块 |
 
 > 🔁 需要重启时**优先用模式 11 的「软重启」**（或 KernelSU 管理器的「软重启」），**不要点「完整重启」**，否则临时 Root 失效、需重走第三步。
@@ -129,16 +130,27 @@ Fastboot: 下发 androidboot.selinux=permissive（临时，不写入分区）
 
 > 各模式的详细操作、按钮说明与两种提权路径的取舍，见 [code/README.md](code/README.md)。
 
+> ⚠️ **模式 2 / 3 / 4 / 6 仅在本机（红米 K70 Pro）验证**，界面顶部已带橙色「机型适配」横幅；
+> 模式 2 加载时还会读取机型属性，非 K70 Pro 会在日志区告警。其他机型执行这些漏洞链 / 小米专属
+> `fastboot oem` 命令可能失败甚至导致无法开机，请勿尝试。
+
 ---
 
 ## 📦 获取所需文件
 
-本方案涉及**两类文件**，分别对应**两套方案**。二者**均不随仓库源码分发**（exe 由 CI 构建、附件为第三方组件），到 **Releases** 页获取：
+本方案涉及**三类文件**：图形工具、手机端 App、旧方案附件包。三者**均不随仓库源码分发**（两个安装包由 CI 构建、附件为第三方组件），到 **Releases** 页获取：
 
 | 文件 | 获取方式 | 用于 |
 |--|--|--|
 | `RootTool.exe` | 到本仓库 **[Releases](../../releases)** 页 Assets 处下载**最新版**（GitHub Actions 构建产物），或按 [code/README.md](code/README.md) 本地自行构建 | **新方案（图形工具，推荐）**，双击即用 |
+| `ZygiskFix.apk` | 到本仓库 **[Releases](../../releases)** 页 Assets 处下载**最新版**（每次发版随 exe 一起构建），源码见 [code/apk/](code/apk/)（可自行编译） | **手机端 App**：装到手机上点「一键激活」，修复重越狱后 Zygisk / Vector 未激活；无需连电脑 |
 | 附件包 | 到 **[v0.0.1 Release](../../releases/tag/v0.0.1)** 的 Assets 处下载，Release 中文件名显示为 **`fujian.zip`**（即本文所称「附件包」；它是固定的第三方组件快照，**仅随首个版本发布一次**，不随工具版本更新；也可按下方「内容一览」自行收集同名组件） | **旧方案（命令行）**：其中 `ksud` 等载荷需为本方案**专用版本** |
+
+> ⚠️ **`ZygiskFix.apk` 要尽早装，且装完再激活**：在已激活（Zygisk 运行中）时安装 APK
+> 可能打穿 swap 导致**整机重启、临时 Root 丢失**。顺序：**先装 APK（未注入）→ 再激活 → 激活后尽量不再装**。
+> 首次点「一键激活」会请求 root 授权；KernelSU 隐藏模式下 App 自己发起 `su` 会被拒，
+> 需到管理器里手动勾选（见 [KernelSU 授权与激活实录](docs/kernelsu-auth-and-activation.md)）。
+> 临时 Root 每次重新越狱后，都需要再点一次「一键激活」。
 
 **附件包内容一览**：
 
@@ -365,6 +377,7 @@ adb shell su -c id            # 期望输出 uid=0(root)
 ### 仓库内文档
 
 - [code/README.md](code/README.md) — 图形化工具完整说明（界面构成、操作指引、打包）
+- [docs/kernelsu-auth-and-activation.md](docs/kernelsu-auth-and-activation.md) — KernelSU 手动授权、一键激活时间线与操作坑位（真机实录）
 - [docs/maintenance.md](docs/maintenance.md) — 更新 KernelSU 组件 / Zygisk / Vector 的维护流程
 - [docs/troubleshooting.md](docs/troubleshooting.md) — Vector「未激活」根因与一键恢复方案（含 GUI 框架自动识别说明）
 - [docs/zygisk-monitor-multi-instance.md](docs/zygisk-monitor-multi-instance.md) — Zygisk monitor 多实例堆积与手动执行 `post-fs-data.sh` 的陷阱
